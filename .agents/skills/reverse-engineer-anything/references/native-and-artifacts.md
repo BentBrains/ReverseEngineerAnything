@@ -79,6 +79,29 @@ execution or network acquisition is implied, and WAT is decoded representation.
 
 ## Native targets
 
+For a large completed `analyze_function` dossier, retain its Evidence ID and read
+`inspect_analysis_view` with `source: {kind: "retained-evidence", evidence_id: ID}`
+and `view: {kind: "native", facet: "pseudocode", offset: 0, limit: 4096}`.
+Text offsets and limits count UTF-16 code units, not bytes or lines; follow the
+returned `coverage.next_offset`. Assembly and other native facets use row pages. Paging
+reads retained evidence without repeating decompilation.
+
+This native view requires function-dossier Evidence; a standalone
+`procedure_pseudo_code` string or `batch_decompile` result is not interchangeable
+with that dossier. For those results, preserve the complete Evidence or export
+an evidence bundle. Do not repeat successful analysis solely to obtain a smaller
+reply. Current `batch_decompile` returns full per-item pseudocode and has no
+`detail: "summary"` input.
+
+If decompilation times out, distinguish the client's request deadline from
+Ghidra startup and analysis. Cancellation of an active Ghidra request discards
+the ephemeral database; the next provider query imports the selected target
+again. Keep useful completed Evidence and reuse matching snapshot results where
+available. A new uncached query can still incur cold import. Increasing the
+startup allowance does not extend a client's tool-call deadline, and a timeout
+does not produce completed pseudocode. See the
+[deadline and recovery guide](https://github.com/morluto/rea/blob/main/docs/mcp-contracts.md#ghidra-first-query-deadlines-and-recovery).
+
 After `open_binary`, use focused search, procedure, or function tools directly.
 Use `binary_overview` when target metadata or inventory context helps answer the
 question. Prefer literal search, names, decompilation, callers, callees, and
