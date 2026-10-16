@@ -99,8 +99,14 @@ an evidence bundle. Do not repeat successful analysis solely to obtain a smaller
 reply. Current `batch_decompile` returns full per-item pseudocode and has no
 `detail: "summary"` input.
 
-If decompilation times out, distinguish the client's request deadline from
-Ghidra startup and analysis. After cancellation of an active Ghidra request,
+If the client times out, provider completion remains unknown: analysis may
+continue, or cancellation may arrive after a successful result has settled.
+Before repeating analysis, inspect `analysis_activity` in `binary_session` and
+use `get_evidence_bundle` with `detail: "summary"` to find matching completed
+`analyze_function` Evidence. Reuse a matching dossier when present; no matching
+record while work is still active does not establish failure. Distinguish the
+client's request deadline from Ghidra startup and analysis. When cancellation
+actually interrupts an active Ghidra request,
 successful cleanup discards the ephemeral database; the next uncached provider
 query imports the selected target again. While the binary session remains open
 without `close_binary`, reuse retained successful Evidence and matching snapshot
@@ -111,8 +117,7 @@ fails. Check the close result and retry after addressing `cleanup_incomplete`
 before reopening the target; do not reuse cleared IDs after close. Preserved
 complete dossier Evidence can instead be supplied through the view's inline
 source. A new uncached query can still incur cold import. Increasing the
-startup allowance does not extend a client's tool-call deadline, and a timeout
-does not produce completed pseudocode. See the
+startup allowance does not extend a client's tool-call deadline. See the
 [deadline and recovery guide](https://github.com/morluto/rea/blob/main/docs/mcp-contracts.md#ghidra-first-query-deadlines-and-recovery).
 
 After `open_binary`, use focused search, procedure, or function tools directly.

@@ -596,8 +596,14 @@ function dossiers and cannot be passed to the native dossier view. Preserve or
 export their complete Evidence instead. `batch_decompile` currently returns full
 per-item pseudocode and does not accept `detail: "summary"`.
 
-A timed-out decompilation is different from a completed result whose delivery
-was too large. After cancellation of an active Ghidra request, successful cleanup
+A client timeout leaves provider completion unknown: analysis may continue, or
+cancellation may arrive after a successful result has settled. Before repeating
+analysis, inspect `analysis_activity` in `binary_session` and use
+`get_evidence_bundle` with `detail: "summary"` to find matching completed
+`analyze_function` Evidence. Reuse a matching dossier when present; no matching
+record while work is still active does not establish failure. A completed result
+whose delivery was too large already has a separate retained continuation path.
+When cancellation actually interrupts an active Ghidra request, successful cleanup
 discards its ephemeral database; the next uncached provider query imports the
 selected target again. While the binary session remains open without
 `close_binary`, previously retained successful Evidence and matching snapshot
