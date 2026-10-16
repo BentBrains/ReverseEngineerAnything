@@ -161,7 +161,12 @@ not accepted by `doctor --provider`. See
 [task readiness](installation.md#check-readiness-for-your-task) and
 [provider selection](mcp-contracts.md#identity-and-discovery).
 
-The session reports work still in progress through `analysis_activity`.
+When the selected provider exposes request activity, the session reports it
+through `analysis_activity`. This observation is optional: Ghidra does not
+currently expose it, and `status: "not_observed"` means unknown rather than idle
+or failed. Keep the session open and recheck for matching completed Evidence
+after a client timeout; absence of both an activity observation and a completed
+record does not prove that analysis stopped.
 A client timeout can end its wait while the provider continues analyzing.
 `cleanup_incomplete` identifies resources whose shutdown or removal could not
 be verified. See [MCP contracts](mcp-contracts.md) for session lifecycle and
