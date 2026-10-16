@@ -83,7 +83,9 @@ For a large completed `analyze_function` dossier, retain its Evidence ID and rea
 `inspect_analysis_view` with `source: {kind: "retained-evidence", evidence_id: ID}`
 and `view: {kind: "native", facet: "pseudocode", offset: 0, limit: 4096}`.
 Text offsets and limits count UTF-16 code units, not bytes or lines; follow the
-returned `coverage.next_offset`. Assembly and other native facets use row pages. Paging
+returned Evidence envelope's `normalized_result.coverage.next_offset`. Assembly
+and collection facets use row pages; singleton facets `procedure`, `native_api`,
+and `value_flow_summary` require offset 0. Paging
 reads retained evidence without repeating decompilation.
 
 This native view requires function-dossier Evidence; a standalone
@@ -94,9 +96,13 @@ reply. Current `batch_decompile` returns full per-item pseudocode and has no
 `detail: "summary"` input.
 
 If decompilation times out, distinguish the client's request deadline from
-Ghidra startup and analysis. Cancellation of an active Ghidra request discards
-the ephemeral database; the next provider query imports the selected target
-again. Keep useful completed Evidence and reuse matching snapshot results where
+Ghidra startup and analysis. After cancellation of an active Ghidra request,
+successful cleanup discards the ephemeral database; the next uncached provider
+query imports the selected target again. Incomplete cleanup retains the owned
+process/runtime and blocks fresh import. Preserve needed Evidence before
+`close_binary`, check its result, and retry close after addressing
+`cleanup_incomplete` before reopening the target. Keep useful completed Evidence
+and reuse matching snapshot results where
 available. A new uncached query can still incur cold import. Increasing the
 startup allowance does not extend a client's tool-call deadline, and a timeout
 does not produce completed pseudocode. See the

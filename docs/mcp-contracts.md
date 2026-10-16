@@ -580,8 +580,10 @@ Evidence. Select its Evidence ID, then request a pseudocode page:
 ```
 
 Call `inspect_analysis_view` with that input and follow the returned
-`coverage.next_offset`. Pseudocode offsets and limits count UTF-16 code units; assembly
-and other native facets use rows. Paging reads retained evidence and does not
+`normalized_result.coverage.next_offset` in the Evidence envelope. Pseudocode
+offsets and limits count UTF-16 code units; assembly and collection facets use
+rows. Singleton facets `procedure`, `native_api`, and `value_flow_summary`
+require offset 0. Paging reads retained evidence and does not
 repeat provider analysis. Keep source coverage and limitations: exhausting text
 does not establish that the analyzed body covers every runtime path.
 
@@ -591,8 +593,12 @@ export their complete Evidence instead. `batch_decompile` currently returns full
 per-item pseudocode and does not accept `detail: "summary"`.
 
 A timed-out decompilation is different from a completed result whose delivery
-was too large. Cancellation of an active Ghidra request discards its ephemeral
-database; the next provider query imports the selected target again. Previously
+was too large. After cancellation of an active Ghidra request, successful cleanup
+discards its ephemeral database; the next uncached provider query imports the
+selected target again. Incomplete cleanup retains the owned process/runtime and
+blocks fresh import. Preserve needed Evidence before `close_binary`, check its
+result, and retry close after addressing `cleanup_incomplete` before reopening
+the target. Previously
 retained successful Evidence and matching snapshot entries can still be reused.
 New uncached queries can require another import. Do not repeat completed work to
 recover a smaller reply, or treat a client timeout as an empty successful result.
