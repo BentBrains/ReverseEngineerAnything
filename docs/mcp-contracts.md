@@ -581,8 +581,12 @@ Evidence. Select its Evidence ID, then request a pseudocode page:
 
 Call `inspect_analysis_view` with that input and follow the returned
 `normalized_result.coverage.next_offset` in the Evidence envelope. Pseudocode
-offsets and limits count UTF-16 code units; assembly and collection facets use
-rows. Singleton facets `procedure`, `native_api`, and `value_flow_summary`
+offsets and limits count UTF-16 code units; available assembly and recorded
+collection data use row pages. An unavailable or unrecorded collection instead
+returns a singleton status object in `normalized_result.item`
+(`{available: false, reason}`), not an array. Preserve that status and its reason
+rather than treating unknown coverage as an empty result.
+Singleton facets `procedure`, `native_api`, and `value_flow_summary`
 require offset 0. Paging reads retained evidence and does not
 repeat provider analysis. Keep source coverage and limitations: exhausting text
 does not establish that the analyzed body covers every runtime path.

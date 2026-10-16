@@ -83,9 +83,12 @@ For a large completed `analyze_function` dossier, retain its Evidence ID and rea
 `inspect_analysis_view` with `source: {kind: "retained-evidence", evidence_id: ID}`
 and `view: {kind: "native", facet: "pseudocode", offset: 0, limit: 4096}`.
 Text offsets and limits count UTF-16 code units, not bytes or lines; follow the
-returned Evidence envelope's `normalized_result.coverage.next_offset`. Assembly
-and collection facets use row pages; singleton facets `procedure`, `native_api`,
-and `value_flow_summary` require offset 0. Paging
+returned Evidence envelope's `normalized_result.coverage.next_offset`. Available
+assembly and recorded collection data use row pages. An unavailable or unrecorded
+collection instead returns a singleton status object in `normalized_result.item`
+(`{available: false, reason}`), not an array. Preserve the status and reason
+rather than interpreting unknown coverage as an empty result. Singleton facets
+`procedure`, `native_api`, and `value_flow_summary` require offset 0. Paging
 reads retained evidence without repeating decompilation.
 
 This native view requires function-dossier Evidence; a standalone
