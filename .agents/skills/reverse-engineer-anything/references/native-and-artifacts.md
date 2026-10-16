@@ -99,13 +99,21 @@ an evidence bundle. Do not repeat successful analysis solely to obtain a smaller
 reply. Current `batch_decompile` returns full per-item pseudocode and has no
 `detail: "summary"` input.
 
-If the client times out, provider completion remains unknown: analysis may
-continue, or cancellation may arrive after a successful result has settled.
-Before repeating analysis, inspect `analysis_activity` in `binary_session` and
-use `get_evidence_bundle` with `detail: "summary"` to find matching completed
-`analyze_function` Evidence. Reuse a matching dossier when present; no matching
-record while work is still active does not establish failure. Distinguish the
-client's request deadline from Ghidra startup and analysis. When cancellation
+A client timeout leaves provider completion unknown: analysis may continue, or
+cancellation may arrive after a successful result has settled. Before repeating
+analysis, use `get_evidence_bundle` with `detail: "summary"` to find matching
+completed `analyze_function` Evidence and reuse a matching dossier. Provider
+activity in `binary_session` is optional: Ghidra does not currently expose it,
+so `analysis_activity.status: "not_observed"` means unknown, not idle or failed.
+No matching record together with `not_observed` does not establish completion
+or failure. Keep the session open, allow the pending request to settle, and
+recheck for completed Evidence instead of immediately closing or repeating it.
+If closing is necessary, `close_binary` with an absolute `snapshot_path` drains
+earlier requests and saves their immutable snapshot before clearing session
+records; a failed save leaves the session open. Check the save/close result and
+preserve the snapshot for reopening. Sessions with metadata edits cannot save an
+immutable snapshot: wait/recheck and export needed Evidence before closing.
+Distinguish the client's request deadline from Ghidra startup and analysis. When cancellation
 actually interrupts an active Ghidra request,
 successful cleanup discards the ephemeral database; the next uncached provider
 query imports the selected target again. While the binary session remains open
