@@ -11,6 +11,7 @@ import { createDeferred } from "../../fixtures/binarySession.js";
 import {
   GhidraFixtureLauncher,
   ghidraFixturePath,
+  ghidraFixtureHost,
 } from "./ghidra/ghidraClient.fixture.js";
 import { HopperFixtureLauncher } from "./hopper/hopperClient.fixture.js";
 
@@ -21,6 +22,7 @@ const providers = [
     create() {
       const fixture = new GhidraFixtureLauncher();
       const client = new GhidraClient({
+        ...ghidraFixtureHost,
         launcher: fixture,
         targetPath: ghidraFixturePath,
         targetSha256: createHash("sha256")
@@ -55,9 +57,11 @@ const providers = [
   },
 ];
 
-it.each(providers)(
+it.for(providers)(
   "cancels a $name restart wait without taking ownership of pending close",
-  async ({ create, cancelled }) => {
+  async ({ name, create, cancelled }, context) => {
+    // Hopper's socket bridge has no Windows host implementation.
+    if (name === "Hopper" && process.platform === "win32") context.skip();
     const { client, roots, children } = create();
     const entered = createDeferred<void>();
     const gate = createDeferred<void>();

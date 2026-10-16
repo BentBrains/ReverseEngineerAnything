@@ -1,4 +1,5 @@
-import { access } from "node:fs/promises";
+import { access, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { expect, it, vi } from "vitest";
@@ -14,12 +15,24 @@ import type { GhidraProviderClientFactory } from "../../../src/ghidra/GhidraProv
 import { silentLogger } from "../../../src/logger.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { createDeferred } from "../../fixtures/binarySession.js";
+import { elf } from "../../../src/domain/binaryTarget.fixture.js";
+import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
-import { GhidraFixtureLauncher } from "../providers/ghidra/ghidraClient.fixture.js";
+import {
+  GhidraFixtureLauncher,
+  ghidraFixtureHost,
+} from "../providers/ghidra/ghidraClient.fixture.js";
 
 it.each([0, 1])(
   "releases cancelled MCP startup caller %s while its peer completes and stays warm",
   async (cancelledIndex) => {
+    // Keep the selected format independent of the test runner's executable:
+    // PE targets start for session attestation before dispatching callTool.
+    const target = join(
+      await createTestTempDirectory("rea-shared-startup-mcp-"),
+      "target.elf",
+    );
+    await writeFile(target, elf(2, 1, 62));
     const entered = createDeferred<void>();
     const admitted = [createDeferred<void>(), createDeferred<void>()];
     const gate = createDeferred<void>();
@@ -32,6 +45,9 @@ it.each([0, 1])(
     const factory: GhidraProviderClientFactory = (options) => {
       const raw = new GhidraClient({
         ...options,
+        // Installation metadata is simulated; child and endpoint ownership
+        // still have to match the actual host running the socket fixture.
+        ...ghidraFixtureHost,
         launcher: {
           async launch(launch, launchOptions) {
             producerSignal = launchOptions?.signal;
@@ -87,7 +103,7 @@ it.each([0, 1])(
       await mcp.connect(clientTransport);
       const opened = await mcp.callTool({
         name: "open_binary",
-        arguments: { path: process.execPath, provider_id: "ghidra" },
+        arguments: { path: target, provider_id: "ghidra" },
       });
       expect(opened.isError).not.toBe(true);
       for (const [index, controller] of controllers.entries()) {
@@ -102,7 +118,14 @@ it.each([0, 1])(
               (cause: unknown) => ({ ok: false as const, cause }),
             ),
         );
-        await admitted[index]?.promise;
+        await Promise.race([
+          admitted[index]?.promise,
+          calls[index]?.then((result) => {
+            throw new Error("MCP call settled before fixture admission", {
+              cause: result,
+            });
+          }),
+        ]);
       }
       await entered.promise;
       controllers[cancelledIndex]?.abort();

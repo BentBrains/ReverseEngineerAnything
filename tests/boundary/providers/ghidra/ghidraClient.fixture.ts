@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ok } from "../../../../src/domain/result.js";
+import type { GhidraClientOptions } from "../../../../src/ghidra/GhidraClientTypes.js";
 import type {
   GhidraLaunchSession,
   GhidraLauncher,
@@ -13,6 +14,15 @@ import type {
 export const ghidraFixturePath = fileURLToPath(
   new URL("../../../fixtures/fakeGhidra.mjs", import.meta.url),
 );
+
+/** Socket fixtures own real host resources even with simulated installation metadata. */
+export const ghidraFixtureHost: Required<
+  Pick<GhidraClientOptions, "platform" | "transport">
+> = {
+  platform: process.platform,
+  transport:
+    process.platform === "win32" ? "authenticated-loopback-tcp" : "unix-socket",
+};
 
 type FixtureMode =
   | "reject_first_connection"

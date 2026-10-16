@@ -1,4 +1,5 @@
 import { rename, rm, writeFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 
 const configuration = JSON.parse(
@@ -67,16 +68,20 @@ else {
     server.listen(0, "127.0.0.1", async () => {
       const address = server.address();
       if (address === null || typeof address === "string") process.exit(65);
-      const pending = `${endpointPath}.pending`;
-      await writeFile(
-        pending,
-        `${JSON.stringify({
-          host: "127.0.0.1",
-          port: address.port,
-        })}\n`,
-        { flag: "wx" },
-      );
-      await rename(pending, endpointPath);
+      const encoded = `${JSON.stringify({
+        host: "127.0.0.1",
+        port: address.port,
+      })}\n`;
+      if (process.platform === "win32") {
+        // Match ReaGhidraBridge's CREATE_NEW publication: the retained private
+        // directory guard forbids rename. Close the small fixture record before
+        // yielding rather than leaving an asynchronous empty-file window.
+        writeFileSync(endpointPath, encoded, { flag: "wx" });
+      } else {
+        const pending = `${endpointPath}.pending`;
+        await writeFile(pending, encoded, { flag: "wx" });
+        await rename(pending, endpointPath);
+      }
     });
   }
 }
