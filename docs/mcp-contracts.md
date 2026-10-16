@@ -579,13 +579,13 @@ Evidence. Select its Evidence ID, then request a pseudocode page:
 }
 ```
 
-Call `inspect_analysis_view` with that input and follow the returned
-`normalized_result.coverage.next_offset` in the Evidence envelope. Pseudocode
-offsets and limits count UTF-16 code units; available assembly and recorded
-collection data use row pages. An unavailable or unrecorded collection instead
-returns a singleton status object in `normalized_result.item`
-(`{available: false, reason}`), not an array. Preserve that status and its reason
-rather than treating unknown coverage as an empty result.
+Call `inspect_analysis_view` with that input and first inspect
+`normalized_result.item` in the Evidence envelope. An unavailable facet, including
+pseudocode, returns a singleton status object (`{available: false, reason}`)
+instead of text or rows. Unrecorded optional collections return that status too.
+Preserve the status and reason as an explicit unknown. For available pseudocode,
+follow `normalized_result.coverage.next_offset`; offsets and limits count UTF-16
+code units. Available assembly and recorded collection data use row pages.
 Singleton facets `procedure`, `native_api`, and `value_flow_summary`
 require offset 0. Paging reads retained evidence and does not
 repeat provider analysis. Keep source coverage and limitations: exhausting text
@@ -599,12 +599,15 @@ per-item pseudocode and does not accept `detail: "summary"`.
 A timed-out decompilation is different from a completed result whose delivery
 was too large. After cancellation of an active Ghidra request, successful cleanup
 discards its ephemeral database; the next uncached provider query imports the
-selected target again. Incomplete cleanup retains the owned process/runtime and
-blocks fresh import. Preserve needed Evidence before `close_binary`, check its
-result, and retry close after addressing `cleanup_incomplete` before reopening
-the target. Previously
-retained successful Evidence and matching snapshot entries can still be reused.
-New uncached queries can require another import. Do not repeat completed work to
+selected target again. While the binary session remains open without
+`close_binary`, previously retained successful Evidence and matching snapshot
+entries can still be reused. Incomplete cleanup retains the owned process/runtime
+and blocks fresh import. Export needed Evidence before `close_binary`: closing
+clears session-retained Evidence IDs and snapshot cache entries even when cleanup
+fails. Check the close result and retry after addressing `cleanup_incomplete`
+before reopening the target; do not reuse the cleared IDs after close. Preserved
+complete dossier Evidence can instead be supplied through the view's inline
+source. New uncached queries can require another import. Do not repeat completed work to
 recover a smaller reply, or treat a client timeout as an empty successful result.
 The [deadline guide](#ghidra-first-query-deadlines-and-recovery) explains which
 settings belong to the client and how to recover after interrupted startup.
