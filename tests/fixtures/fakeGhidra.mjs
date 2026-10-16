@@ -1,5 +1,4 @@
-import { rename, rm, writeFile } from "node:fs/promises";
-import { writeFileSync } from "node:fs";
+import { open, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 
 const configuration = JSON.parse(
@@ -29,8 +28,10 @@ if (
 }
 
 if (mode === "exit") process.exit(73);
-if (mode === "silent") setInterval(() => undefined, 1_000);
-else {
+if (mode === "silent") {
+  process.send?.({ event: "fixture-ready" });
+  setInterval(() => undefined, 1_000);
+} else {
   await rm(endpointPath, { force: true });
   const sockets = new Set();
   let rejectedConnections = 0;
@@ -63,7 +64,10 @@ else {
     for (const socket of sockets) socket.destroy();
     process.send?.({ event: "disconnected" });
   });
-  if (transport === "unix-socket") server.listen(endpointPath);
+  if (transport === "unix-socket")
+    server.listen(endpointPath, () =>
+      process.send?.({ event: "fixture-ready" }),
+    );
   else {
     server.listen(0, "127.0.0.1", async () => {
       const address = server.address();
@@ -73,15 +77,31 @@ else {
         port: address.port,
       })}\n`;
       if (process.platform === "win32") {
-        // Match ReaGhidraBridge's CREATE_NEW publication: the retained private
-        // directory guard forbids rename. Close the small fixture record before
-        // yielding rather than leaving an asynchronous empty-file window.
-        writeFileSync(endpointPath, encoded, { flag: "wx" });
+        // The guard forbids rename. The launcher must wait for fixture-ready:
+        // even a synchronous Node write would expose the new file before close.
+        const file = await open(endpointPath, "wx");
+        try {
+          if (mode === "gated_endpoint") {
+            await new Promise((resolve) => {
+              const publish = (message) => {
+                if (message !== "publish-endpoint") return;
+                process.off("message", publish);
+                resolve();
+              };
+              process.on("message", publish);
+              process.send?.({ event: "endpoint-open" });
+            });
+          }
+          await file.writeFile(encoded);
+        } finally {
+          await file.close();
+        }
       } else {
         const pending = `${endpointPath}.pending`;
         await writeFile(pending, encoded, { flag: "wx" });
         await rename(pending, endpointPath);
       }
+      process.send?.({ event: "fixture-ready" });
     });
   }
 }

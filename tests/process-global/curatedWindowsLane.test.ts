@@ -110,6 +110,16 @@ describe("curated Windows test lane", () => {
     expect(verify).toBeGreaterThan(download);
     expect(build).toBeGreaterThan(verify);
   });
+  it("runs the host-bound Ghidra publication and cancellation regressions", async () => {
+    expect(await explicitPaths("windows")).toEqual(
+      expect.arrayContaining([
+        "tests/boundary/providers/ghidra/ghidraClient.test.ts",
+        "tests/boundary/mcp/ghidraStartupCancellationMcp.test.ts",
+        "tests/boundary/mcp/ghidraInventoryMcp.test.ts",
+        "tests/boundary/providers/startupCloseWaiters.test.ts",
+      ]),
+    );
+  });
 });
 
 it("keeps every explicit focused CI test path executable after file moves", async () => {
