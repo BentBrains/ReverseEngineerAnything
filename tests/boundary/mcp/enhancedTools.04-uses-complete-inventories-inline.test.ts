@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   closeEnhancedToolResources,
-  connect,
+  connect as connectTool,
   jsonResult,
 } from "./enhancedToolsHarness.js";
 import type {
@@ -19,6 +19,23 @@ import { err, type Result } from "../../../src/domain/result.js";
 import { observed as ok } from "../../fixtures/analysisExecution.js";
 
 afterEach(closeEnhancedToolResources);
+
+// These fixtures exercise composition for providers without a native overview.
+const connect = (analysis: AnalysisOperationPort) =>
+  connectTool({
+    execute: (operation, parameters, options) =>
+      operation === "read_binary_inventory_summary"
+        ? Promise.resolve(
+            err(
+              new AnalysisCapabilityUnavailableError(
+                "fixture",
+                operation,
+                "No native overview",
+              ),
+            ),
+          )
+        : analysis.execute(operation, parameters, options),
+  });
 
 it("discovers declarations without counting duplicates or compiler bookkeeping", async () => {
   const client = await connect({

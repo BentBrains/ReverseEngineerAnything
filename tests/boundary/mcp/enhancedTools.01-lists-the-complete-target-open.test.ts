@@ -66,6 +66,16 @@ const fixturePort = (): AnalysisOperationPort => ({
   // oxlint-disable-next-line complexity -- this fixture exhaustively serves the registered MCP surface.
   execute: (name, arguments_) => {
     switch (name) {
+      case "read_binary_inventory_summary":
+        return Promise.resolve(
+          err(
+            new AnalysisCapabilityUnavailableError(
+              "fixture",
+              name,
+              "This fixture exercises composed overview",
+            ),
+          ),
+        );
       case "inspect_native_dispatch_metadata":
         return Promise.resolve(
           err(

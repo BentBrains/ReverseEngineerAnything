@@ -255,6 +255,7 @@ const sessionInfo = ({
   analysis_complete: !timedOut,
   analysis_timed_out: timedOut,
   capabilities: [
+    "read_binary_inventory_summary",
     "ping",
     "shutdown",
     "inspect_native_load_image",
@@ -307,6 +308,13 @@ const sessionInfo = ({
 
 const inventoryResultFor = (method, params) => {
   switch (method) {
+    case "read_binary_inventory_summary":
+      return {
+        document: "fixture",
+        segments: inventoryResultFor("list_segments", {}),
+        procedure_count: inventoryResultFor("list_procedures", {}).length,
+        string_count: inventoryResultFor("list_strings", {}).length,
+      };
     case "search_bytes": {
       const continued = params.cursor === "fixture-second-page";
       const paged = params.limit === 1 && !continued;

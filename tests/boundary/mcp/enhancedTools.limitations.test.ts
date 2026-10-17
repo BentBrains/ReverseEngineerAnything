@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from "vitest";
 import { createAnalysisExecution } from "../../../src/application/AnalysisProvider.js";
-import { ok } from "../../../src/domain/result.js";
+import { err, ok } from "../../../src/domain/result.js";
+import { AnalysisCapabilityUnavailableError } from "../../../src/domain/analysisErrorCore.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { connect, closeEnhancedToolResources } from "./enhancedToolsHarness.js";
 
@@ -11,6 +12,14 @@ it("retains provider coverage caveats in a composed MCP overview without repeate
   const limitation = "Companion PDB symbol coverage is unverified.";
   const client = await connect({
     execute: async (operation) => {
+      if (operation === "read_binary_inventory_summary")
+        return err(
+          new AnalysisCapabilityUnavailableError(
+            "fixture",
+            operation,
+            "No native overview",
+          ),
+        );
       calls.push(operation);
       const value = operation === "current_document" ? "fixture" : [];
       return ok(

@@ -561,6 +561,24 @@ it("reports host denial before target mismatch but keeps composed workflow prere
 });
 
 describe("binary_overview capability requirements", () => {
+  it("admits a native overview without requiring full inventory operations", () => {
+    expect(
+      entry(
+        "binary_overview",
+        status({
+          open: true,
+          kind: "executable",
+          capabilities: [
+            {
+              operation: "read_binary_inventory_summary",
+              available: true,
+              reason: null,
+            },
+          ],
+        }),
+      ),
+    ).toMatchObject({ available: true, reason: "available" });
+  });
   it("admits a provider with current_document and other mandatory capabilities", () => {
     const capabilities = [
       "current_document",

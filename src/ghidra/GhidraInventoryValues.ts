@@ -13,6 +13,7 @@ import {
 import {
   functionBodySchema,
   functionBodyEntryAgrees,
+  projectBinaryOverview,
 } from "../domain/hopperValues.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { err, ok, type Result } from "../domain/result.js";
@@ -23,6 +24,7 @@ import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js"
  * except the naming operations, which edit the ephemeral session database.
  */
 export const GHIDRA_INVENTORY_OPERATIONS = [
+  "read_binary_inventory_summary",
   "inspect_native_load_image",
   "read_bytes",
   "search_bytes",
@@ -78,6 +80,7 @@ const searchInput = {
 };
 
 const inputSchemas = {
+  read_binary_inventory_summary: z.strictObject({}),
   search_bytes: z
     .strictObject({
       ...bytePatternFields,
@@ -287,6 +290,14 @@ const containingProcedure = z.discriminatedUnion("found", [
 ]);
 
 const resultSchemas = {
+  read_binary_inventory_summary: z
+    .strictObject({
+      document: identifier,
+      segments: z.array(segment),
+      procedure_count: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      string_count: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    })
+    .transform(projectBinaryOverview),
   search_bytes: byteSearchResultSchema.superRefine((value, context) => {
     const addresses = [
       ...value.matches.flatMap((match) => [

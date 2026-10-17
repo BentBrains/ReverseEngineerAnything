@@ -144,6 +144,15 @@ type GhidraResultBuilder = (
 ) => JsonValue;
 
 const resultBuilders = new Map<GhidraOperation, GhidraResultBuilder>([
+  [
+    "read_binary_inventory_summary",
+    () => ({
+      document: "fixture",
+      segments: resultFor("list_segments", {}),
+      procedure_count: 1,
+      string_count: 2,
+    }),
+  ],
   ["list_documents", () => ["fixture"]],
   [
     "list_procedures",

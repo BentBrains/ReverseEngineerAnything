@@ -65,6 +65,14 @@ PDB, or change analyzer settings.
 
 ## Loaded addresses and file offsets
 
+Ghidra computes overview procedure and string counts from the same inventories
+used by `list_procedures` and `list_strings`, without transporting those rows
+solely to count them. Counts include external functions and only Ghidra-defined
+strings; they do not establish discovery of unidentified functions or undefined
+string bytes. Complete inventories remain available through the list tools.
+Overview reuse follows the target/profile snapshot lifetime and is invalidated
+by session metadata edits.
+
 `rea analyze <path> --provider ghidra --json` and MCP `binary_overview` report
 the observed loaded `image_base` in `normalized_result`. They retain each
 segment's reported `image_base` and `address_space`. A provider that does not

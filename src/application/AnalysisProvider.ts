@@ -40,6 +40,9 @@ export type AnalysisOperation =
   | NativeToolName
   | ArtifactAnalysisOperation
   | ManagedToolName
+  // Provider aggregate and composed public overview have distinct Evidence and
+  // snapshot identities. This capability does not add a CLI/MCP tool.
+  | "read_binary_inventory_summary"
   | "health";
 
 /** Atomic successful provider observation with exact producing provenance. */

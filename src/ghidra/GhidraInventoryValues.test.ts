@@ -1,6 +1,55 @@
 import { describe, expect, it } from "vitest";
 
-import { parseGhidraInventoryResult } from "./GhidraInventoryValues.js";
+import {
+  parseGhidraInventoryInput,
+  parseGhidraInventoryResult,
+} from "./GhidraInventoryValues.js";
+
+describe("provider-owned overview boundary", () => {
+  const overview = {
+    document: "fixture",
+    segments: [],
+    procedure_count: 0,
+    string_count: 0,
+  };
+
+  it("keeps exact empty counts and an observed empty segment set", () => {
+    expect(
+      parseGhidraInventoryInput("read_binary_inventory_summary", {}),
+    ).toEqual({
+      ok: true,
+      value: {},
+    });
+    expect(
+      parseGhidraInventoryInput("read_binary_inventory_summary", {
+        document: "other",
+      }).ok,
+    ).toBe(false);
+    expect(
+      parseGhidraInventoryResult("read_binary_inventory_summary", overview),
+    ).toEqual({
+      ok: true,
+      value: { ...overview, segment_count: 0 },
+    });
+  });
+
+  it.each([
+    { procedure_count: -1 },
+    { string_count: 1.5 },
+    { procedure_count: Number.MAX_SAFE_INTEGER + 1 },
+    { string_count: null },
+    { document: "" },
+    { segments: [{ name: "incomplete" }] },
+    { extra: "unexpected" },
+  ])("rejects malformed aggregates before creating Evidence: %j", (change) => {
+    expect(
+      parseGhidraInventoryResult("read_binary_inventory_summary", {
+        ...overview,
+        ...change,
+      }).ok,
+    ).toBe(false);
+  });
+});
 
 // Wire-boundary fixture only; real-provider acceptance belongs to the DOS verifier.
 describe("containing-procedure complete body evidence", () => {

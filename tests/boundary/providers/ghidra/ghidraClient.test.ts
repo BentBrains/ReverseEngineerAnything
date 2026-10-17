@@ -716,6 +716,11 @@ describe("GhidraClient", () => {
     const client = clientFor(launcher);
 
     const started = await client.start();
+    const expectedCapabilities = GHIDRA_SESSION_CAPABILITIES.filter(
+      (value) =>
+        HOST_TRANSPORT === "unix-socket" ||
+        !GHIDRA_MUTATING_OPERATIONS.has(value),
+    );
     expect(started).toMatchObject({
       ok: true,
       value: {
@@ -724,18 +729,22 @@ describe("GhidraClient", () => {
         read_only: HOST_TRANSPORT !== "unix-socket",
         analysis_complete: true,
         analysis_timed_out: false,
-        capabilities: GHIDRA_SESSION_CAPABILITIES.filter(
-          (value) =>
-            HOST_TRANSPORT === "unix-socket" ||
-            !GHIDRA_MUTATING_OPERATIONS.has(value),
-        ),
         target: {
           image_base: "0x1000",
           default_address_space: "ram",
         },
       },
     });
-    if (started.ok) expect(started.value).not.toHaveProperty("bridge_version");
+    if (started.ok) {
+      // Capability identity is an exact set; bridge declaration order is not a contract.
+      expect(new Set(started.value.capabilities)).toEqual(
+        new Set(expectedCapabilities),
+      );
+      expect(started.value.capabilities).toHaveLength(
+        expectedCapabilities.length,
+      );
+      expect(started.value).not.toHaveProperty("bridge_version");
+    }
     if (HOST_TRANSPORT === "unix-socket")
       expect(Buffer.byteLength(launcher.endpointPaths[0] ?? "")).toBeLessThan(
         108,

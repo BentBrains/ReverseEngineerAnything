@@ -180,6 +180,20 @@ const makeProvider = (
           trace.calls.push(operation);
           const results: Readonly<Record<string, unknown>> = {
             health: null,
+            read_binary_inventory_summary: {
+              document: "fixture",
+              procedure_count: 1,
+              string_count: 1,
+              segment_count: 1,
+              segments: [
+                {
+                  name: "__TEXT",
+                  start: "0x1000",
+                  end: "0x2000",
+                  length: 4096,
+                },
+              ],
+            },
             list_segments: [
               {
                 name: "__TEXT",

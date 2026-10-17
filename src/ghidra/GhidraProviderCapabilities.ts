@@ -21,11 +21,20 @@ export const GHIDRA_PROVIDER_IDENTITY: ProviderIdentity = Object.freeze({
   version: null,
 });
 
-/** Analyst operations implemented by the Ghidra inventory and function adapters. */
-export const GHIDRA_OPERATIONS = Object.freeze([
+/** Provider observations, including internal aggregates consumed by workflows. */
+const providerOperations = Object.freeze([
   ...GHIDRA_INVENTORY_OPERATIONS,
   ...GHIDRA_FUNCTION_OPERATIONS,
 ]);
+
+/** Public analyst tools backed by these observations; aggregates stay internal. */
+export const GHIDRA_OPERATIONS = Object.freeze(
+  providerOperations.map((operation) =>
+    operation === "read_binary_inventory_summary"
+      ? "binary_overview"
+      : operation,
+  ),
+);
 
 /** Health limitations shared by every Ghidra-backed capability. */
 export const healthLimitations = Object.freeze([
@@ -54,6 +63,13 @@ export const limitationsFor = (operation: string): readonly string[] => {
     "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
   ];
   switch (operation) {
+    case "read_binary_inventory_summary":
+      return [
+        ...common,
+        stringInventoryLimitation,
+        "Counts use the complete defined-string inventory and the same local/external function inventory as list_strings and list_procedures. They do not establish discovery of undefined strings or unidentified functions.",
+        "Memory-block end addresses are exclusive; segment lengths use those observed address coordinates.",
+      ];
     case "annotate_native_function":
       return [
         ...common,
@@ -174,7 +190,7 @@ export const limitationsFor = (operation: string): readonly string[] => {
 
 /** Provider-neutral capabilities advertised by every non-Windows Ghidra session. */
 export const CAPABILITIES: readonly CapabilityDescriptor[] = Object.freeze(
-  GHIDRA_OPERATIONS.map((operation) => {
+  providerOperations.map((operation) => {
     return Object.freeze({
       provider: GHIDRA_PROVIDER_IDENTITY,
       operation,

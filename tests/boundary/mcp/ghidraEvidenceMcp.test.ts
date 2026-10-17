@@ -413,6 +413,7 @@ describe("Ghidra MCP evidence parity", () => {
         ],
       });
 
+      const beforeOverview = harness.calls.length;
       const mcpOverview = sessionEvidence(
         session,
         (
@@ -427,6 +428,9 @@ describe("Ghidra MCP evidence parity", () => {
         {},
       );
       if (!directOverview.ok) throw directOverview.error;
+      expect(harness.calls.slice(beforeOverview)).toEqual([
+        "read_binary_inventory_summary",
+      ]);
       expect(mcpOverview.normalized_result).toEqual(directOverview.value);
       expect(mcpOverview).toMatchObject({
         provider: { id: "rea-workflow" },

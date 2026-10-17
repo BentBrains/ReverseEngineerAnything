@@ -16,13 +16,12 @@ import {
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import {
-  addressDistance,
   functionDossierSchema,
   parseFunctionDossier,
   parseListCount,
   parseRelatedAddresses,
   parseSegments,
-  parseSegmentImageBase,
+  projectBinaryOverview,
 } from "../domain/hopperValues.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
@@ -617,6 +616,17 @@ export class EnhancedTools {
   }
 
   async #binaryOverview(signal?: AbortSignal): EnhancedResult {
+    const direct = await this.#call(
+      "read_binary_inventory_summary",
+      {},
+      signal,
+    );
+    if (
+      direct.ok ||
+      !(direct.error instanceof AnalysisCapabilityUnavailableError) ||
+      direct.error.cleanupIncomplete
+    )
+      return direct;
     const document = await resolveAnalysisDocument(
       this.analysis,
       undefined,
@@ -647,33 +657,14 @@ export class EnhancedTools {
     const stringCount = parseListCount(stringsResult.value, "strings");
     if (!stringCount.ok) return stringCount;
 
-    const observedSegments = segments?.ok ? segments.value : undefined;
-    const imageBase =
-      observedSegments === undefined
-        ? undefined
-        : parseSegmentImageBase(observedSegments);
-
-    return ok({
-      document: document.value,
-      ...(imageBase === undefined ? {} : { image_base: imageBase }),
-      ...(observedSegments === undefined
-        ? {}
-        : {
-            segments: observedSegments.map(
-              ({ name, start, end, image_base, address_space }) => ({
-                name,
-                start,
-                end,
-                length: addressDistance(start, end),
-                ...(image_base === undefined ? {} : { image_base }),
-                ...(address_space === undefined ? {} : { address_space }),
-              }),
-            ),
-            segment_count: observedSegments.length,
-          }),
-      procedure_count: procedureCount.value,
-      string_count: stringCount.value,
-    });
+    return ok(
+      projectBinaryOverview({
+        document: document.value,
+        ...(segments?.ok ? { segments: segments.value } : {}),
+        procedure_count: procedureCount.value,
+        string_count: stringCount.value,
+      }),
+    );
   }
 
   async #allAddressed(

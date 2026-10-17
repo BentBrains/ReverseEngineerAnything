@@ -166,6 +166,16 @@ try {
     !Array.isArray(strings)
   )
     throw new Error("Windows Ghidra inventory proof was incomplete");
+  const overview = await inventory("read_binary_inventory_summary", {});
+  if (
+    overview.document !== documents[0] ||
+    overview.procedure_count !== procedures.length ||
+    overview.string_count !== strings.length ||
+    overview.segment_count !== segments.length
+  )
+    throw new Error(
+      "Windows Ghidra overview aggregates disagree with inventories",
+    );
   const procedure = procedures.find(
     (item) => item.procedure?.external === false,
   );

@@ -679,6 +679,11 @@ const composedAvailability = (
   name: string,
   descriptors: ReadonlyMap<string, ProviderDescriptor>,
 ): Availability => {
+  if (
+    name === "binary_overview" &&
+    descriptors.get("read_binary_inventory_summary")?.available === true
+  )
+    return { reason: "available", remediation: null };
   const requirements = ENHANCED_REQUIREMENTS[name];
   if (requirements === undefined)
     return {

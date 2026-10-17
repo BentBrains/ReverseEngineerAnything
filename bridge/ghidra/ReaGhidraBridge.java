@@ -140,6 +140,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         "params"
     );
     private static final String[] CAPABILITIES = {
+        "read_binary_inventory_summary",
         "annotate_native_function",
         "set_address_name",
         "set_addresses_names",
@@ -427,6 +428,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             );
         }
         return switch (request.method) {
+            case "read_binary_inventory_summary" -> binaryInventorySummary(request.params);
             case "inspect_native_load_image" -> inspectNativeLoadImage(request.params);
             case "read_bytes" -> readMemoryBytes(request.params);
             case "search_bytes" -> searchMemoryBytes(request.params, descriptor);
@@ -1974,6 +1976,18 @@ public final class ReaGhidraBridge extends HeadlessScript {
         return result;
     }
 
+    private JsonObject binaryInventorySummary(JsonObject params) throws Exception {
+        requireKeys(params, Set.of());
+        JsonObject result = new JsonObject();
+        result.addProperty("document", currentProgram.getName());
+        result.add("segments", segments());
+        // Count the owning inventories, preserving their exact discovery rules
+        // without serializing function identities or string values for counts.
+        result.addProperty("procedure_count", procedures().size());
+        result.addProperty("string_count", strings().size());
+        return result;
+    }
+
     private JsonArray listNames(JsonObject params) throws Exception {
         requireKeys(params, Set.of("document", "address"));
         requireDocument(params);
@@ -2000,6 +2014,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private JsonArray listSegments(JsonObject params) {
         requireKeys(params, Set.of("document"));
         requireDocument(params);
+        return segments();
+    }
+
+    private JsonArray segments() {
         JsonArray result = new JsonArray();
         String imageBase = canonicalAddress(currentProgram.getImageBase());
         MemoryBlock[] blocks = currentProgram.getMemory().getBlocks();

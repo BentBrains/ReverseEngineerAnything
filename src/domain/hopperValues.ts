@@ -527,6 +527,39 @@ export const parseSegmentImageBase = (
     : undefined;
 };
 
+/** Project the same overview from complete lists or provider-owned aggregates. */
+export const projectBinaryOverview = (input: {
+  readonly document: string;
+  readonly procedure_count: number;
+  readonly string_count: number;
+  readonly segments?: readonly SegmentSummary[];
+}): JsonValue => {
+  const { document, procedure_count, string_count, segments } = input;
+  const imageBase =
+    segments === undefined ? undefined : parseSegmentImageBase(segments);
+  return {
+    document,
+    ...(imageBase === undefined ? {} : { image_base: imageBase }),
+    ...(segments === undefined
+      ? {}
+      : {
+          segments: segments.map(
+            ({ name, start, end, image_base, address_space }) => ({
+              name,
+              start,
+              end,
+              length: addressDistance(start, end),
+              ...(image_base === undefined ? {} : { image_base }),
+              ...(address_space === undefined ? {} : { address_space }),
+            }),
+          ),
+          segment_count: segments.length,
+        }),
+    procedure_count,
+    string_count,
+  };
+};
+
 /** Parse direct or wrapped provider document names. */
 export const parseDocuments = (
   value: JsonValue,
