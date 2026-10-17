@@ -559,6 +559,120 @@ describe("CommonJS receiver lifetimes", () => {
   });
 });
 
+describe("CommonJS exports defined with Object.defineProperty", () => {
+  const exportsOf = (source: string) =>
+    analyzeJavaScriptSemantics(source).moduleLinks.filter(
+      ({ kind }) => kind === "commonjs-export",
+    );
+  const defineParse =
+    'Object.defineProperty(exports, "parse", { value: () => 1 });';
+
+  it("retains tsc CommonJS re-exports and data descriptors", () => {
+    const links = exportsOf(`
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.VERSION = void 0;
+      exports.VERSION = "1.0";
+      var client_1 = require("./client");
+      Object.defineProperty(exports, "Client", { enumerable: true, get: function () { return client_1.Client; } });
+    `);
+    expect(links.map(({ exportedName }) => exportedName)).toEqual([
+      "__esModule",
+      "VERSION",
+      "VERSION",
+      "Client",
+    ]);
+    // An accessor's result is not proven by the descriptor.
+    expect(links.at(-1)).toMatchObject({
+      localName: null,
+      callableId: null,
+      specifier: null,
+    });
+  });
+
+  it.each([
+    ["() => 1", "parse"],
+    ['require("./parser")', "parse"],
+    ['require("./parser").parse', "parse"],
+    ["parse", "parse"],
+    ['holder.parse = require("./parser").parse', "parse"],
+    ["first = second = () => 1", "parse"],
+  ])(
+    "links a data descriptor value %s like the equivalent assignment",
+    (value, name) => {
+      const strip = (links: ReturnType<typeof exportsOf>) =>
+        links.map(({ location: _location, callableId, ...link }) => ({
+          ...link,
+          callable: callableId !== null,
+        }));
+      const assigned = exportsOf(`exports.${name} = ${value};`);
+      const defined = exportsOf(
+        `Object.defineProperty(exports, "${name}", { value: ${value} });`,
+      );
+      expect(strip(defined)).toEqual(strip(assigned));
+      expect(defined).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    defineParse,
+    `module.exports = {}; ${defineParse.replace("(exports", "(module.exports")}`,
+    `module.exports = {}; exports = module.exports; ${defineParse}`,
+  ])("retains a connected receiver: %s", (source) => {
+    expect(exportsOf(source)).toContainEqual(
+      expect.objectContaining({
+        exportedName: "parse",
+        callableId: expect.any(String),
+      }),
+    );
+  });
+
+  it.each([
+    `module.exports = {}; ${defineParse}`,
+    `exports = {}; ${defineParse}`,
+    `${defineParse} module.exports = {};`,
+  ])("excludes a detached receiver: %s", (source) => {
+    expect(
+      exportsOf(source).filter(({ exportedName }) => exportedName === "parse"),
+    ).toEqual([]);
+  });
+
+  it.each([
+    `if (flag) module.exports = {}; ${defineParse}`,
+    `function replace() { exports = {}; } replace(); ${defineParse}`,
+    `module.exports = {}; Object.defineProperty(module, "exports", { value: exports }); ${defineParse}`,
+    `if (flag) { ${defineParse} }`,
+  ])("keeps an uncertain receiver unresolved: %s", (source) => {
+    expect(exportsOf(source)).toContainEqual(
+      expect.objectContaining({
+        exportedName: "parse",
+        callableId: null,
+        localName: null,
+      }),
+    );
+  });
+
+  it.each([
+    'const Object = { defineProperty() {} }; Object.defineProperty(exports, "parse", { value: 1 });',
+    'Object.defineProperty = patched; Object.defineProperty(exports, "parse", { value: 1 });',
+    'Object.defineProperty(other, "parse", { value: 1 });',
+    'Object.defineProperty(module, "parse", { value: 1 });',
+    'function local(exports) { Object.defineProperty(exports, "parse", { value: 1 }); }',
+    'Object.defineProperty(exports, "parse");',
+    "Object.defineProperty(...args);",
+  ])("does not treat other defineProperty calls as exports: %s", (source) => {
+    expect(
+      exportsOf(source).filter(({ exportedName }) => exportedName === "parse"),
+    ).toEqual([]);
+  });
+
+  it("keeps a dynamic defined key unknown", () => {
+    expect(
+      exportsOf("Object.defineProperty(exports, key, { value: 1 });"),
+    ).toEqual([expect.objectContaining({ exportedName: "*" })]);
+  });
+});
+
 describe("JavaScript semantic analysis: write references", () => {
   it("classifies destructuring and loop targets as writes, not reads", () => {
     const ir = analyzeJavaScriptSemantics(`

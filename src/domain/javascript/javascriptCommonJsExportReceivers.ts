@@ -9,6 +9,7 @@ import {
   isUnshadowedGlobal,
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
+import { isUnmodifiedGlobalReference } from "./javascriptSemanticAmbientWrites.js";
 import { traverseJavaScriptAstSteps } from "./javascriptSemanticTraversal.js";
 import { semanticPropertyPathKeyMatches } from "./javascriptSemanticPropertyPaths.js";
 
@@ -16,6 +17,9 @@ export type CommonJsExportReceiverEffect =
   | "connected"
   | "detached"
   | "uncertain";
+
+/** A CommonJS export assignment or `Object.defineProperty` export call. */
+export type CommonJsExportSite = t.AssignmentExpression | t.CallExpression;
 
 const isCommonJsModuleExports = (
   node: t.Node,
@@ -39,6 +43,51 @@ export const commonJsExportName = (
   )
     return key === null ? "*" : key;
   return isCommonJsModuleExports(node, state) ? "default" : undefined;
+};
+
+/**
+ * `Object.defineProperty(exports, key, descriptor)`, as tsc and Babel emit
+ * for CommonJS re-exports, defines the same export as an assignment.
+ */
+export const commonJsDefinedExport = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+):
+  | {
+      readonly exportedName: string;
+      readonly receiver: t.Node;
+      readonly descriptor: t.Node;
+    }
+  | undefined => {
+  if (!t.isCallExpression(node)) return undefined;
+  const [target, key, descriptor] = node.arguments;
+  if (
+    target === undefined ||
+    key === undefined ||
+    descriptor === undefined ||
+    t.isSpreadElement(target) ||
+    t.isSpreadElement(key) ||
+    t.isSpreadElement(descriptor) ||
+    t.isArgumentPlaceholder(target) ||
+    t.isArgumentPlaceholder(key) ||
+    t.isArgumentPlaceholder(descriptor)
+  )
+    return undefined;
+  const receiver = unwrapJavaScriptExpression(target).node;
+  if (
+    (!isUnshadowedGlobal(receiver, state, "exports") &&
+      !isCommonJsModuleExports(receiver, state)) ||
+    !isUnmodifiedGlobalReference(node.callee, state, [
+      "Object",
+      "defineProperty",
+    ])
+  )
+    return undefined;
+  return {
+    exportedName: semanticStaticPropertyKey(key, true) ?? "*",
+    receiver,
+    descriptor,
+  };
 };
 
 type Identity = t.Node | null;
@@ -65,7 +114,7 @@ export function* indexCommonJsExportReceiversSteps(
   state: JavaScriptSemanticAnalysisState,
 ): Generator<
   void,
-  ReadonlyMap<t.AssignmentExpression, CommonJsExportReceiverEffect>
+  ReadonlyMap<CommonJsExportSite, CommonJsExportReceiverEffect>
 > {
   const initial = state.program;
   let publicIdentity: Identity = initial;
@@ -74,7 +123,7 @@ export function* indexCommonJsExportReceiversSteps(
   let deferredReplacement = false;
   const fresh = new WeakSet<t.Node>([initial]);
   const values = new WeakMap<t.Node, Identity>();
-  const captures = new Map<t.AssignmentExpression, Identity>();
+  const captures = new Map<CommonJsExportSite, Identity>();
   const execution: Execution[] = [];
   const publicCallWrites = new WeakSet<t.Node>();
   // Consume the shared write owner's resolved aliases, intrinsic invocation
@@ -168,6 +217,16 @@ export function* indexCommonJsExportReceiversSteps(
               : publicIdentity,
         );
       }
+      const defined = commonJsDefinedExport(node, state);
+      if (defined !== undefined && t.isCallExpression(node))
+        captures.set(
+          node,
+          mode !== "ordered"
+            ? null
+            : isUnshadowedGlobal(defined.receiver, state, "exports")
+              ? exportsIdentity
+              : publicIdentity,
+        );
     },
     exit: (node) => {
       const mode = execution.pop() ?? "conditional";
@@ -222,10 +281,7 @@ export function* indexCommonJsExportReceiversSteps(
       }
     },
   });
-  const effects = new Map<
-    t.AssignmentExpression,
-    CommonJsExportReceiverEffect
-  >();
+  const effects = new Map<CommonJsExportSite, CommonJsExportReceiverEffect>();
   for (const [node, receiver] of captures) {
     effects.set(
       node,
