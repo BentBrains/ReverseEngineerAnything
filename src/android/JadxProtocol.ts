@@ -102,6 +102,45 @@ export const jadxXrefsSchema = z.object({
     }),
   ),
 });
+/** REA bridge resource scan; IDs are signed 32-bit ints as Java reports them. */
+export const jadxResourceReferencesSchema = z.object({
+  classes_scanned: count,
+  methods_scanned: count,
+  app_resource_names: count,
+  max_sites: count,
+  resources: z.array(
+    z.object({
+      requested: z.string(),
+      package: z.string(),
+      type: z.string(),
+      name: z.string(),
+      table: z.enum(["app", "framework"]),
+      ids: z.array(z.number().int()),
+      total_r_fields: count,
+      r_fields: z.array(
+        z.object({
+          class_name: z.string(),
+          field_name: z.string(),
+          origin: z.enum(["dex", "jadx_generated"]),
+        }),
+      ),
+      total_sites: count,
+      sites: z.array(
+        z.object({
+          kind: z.enum(["const_literal", "switch_case", "r_field_read"]),
+          class_name: z.string(),
+          raw_class_name: z.string(),
+          top_class: z.string(),
+          method_name: z.string(),
+          raw_method_id: z.string(),
+          dex_entry: z.string(),
+          dex_code_unit_offset: count,
+          opcode: z.string(),
+        }),
+      ),
+    }),
+  ),
+});
 const toolResponse = z.object({
   content: z
     .array(z.object({ type: z.literal("text"), text: z.string() }))

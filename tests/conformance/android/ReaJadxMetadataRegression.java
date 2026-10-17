@@ -114,6 +114,78 @@ public class ReaJadxMetadataRegression {
     System.out.println("DIRECT_INVOKE_REGRESSION_PASS nodes=1 offsets=0,3 cross_dex=true");
   }
 
+  /** Resolve framework and R-field resources and scan const, packed/sparse switch and sget sites. */
+  private static void verifyResourceReferences(SessionHolder holder, SessionConfig config,
+      Constructor<?> constructor, Method handle, Path sources, Path output) throws Exception {
+    SmaliOptions options = new SmaliOptions();
+    options.apiLevel = 28;
+    options.jobs = 1;
+    options.outputDexFile = output.resolve("resource-references.dex").toString();
+    require(Smali.assemble(options, List.of(
+        sources.resolve("Views.smali").toString(), sources.resolve("R$id.smali").toString())),
+        "Resource-reference fixture assembly failed");
+    Path apk = output.resolve("resource-references.apk");
+    try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(apk))) {
+      zip.putNextEntry(new ZipEntry("classes.dex"));
+      Files.copy(Path.of(options.outputDexFile), zip);
+      zip.closeEntry();
+    }
+    BuildersKt.runBlocking(EmptyCoroutineContext.INSTANCE,
+        (scope, continuation) -> holder.unload(continuation));
+    BuildersKt.runBlocking(EmptyCoroutineContext.INSTANCE,
+        (scope, continuation) -> holder.load(apk.toString(), config, continuation));
+    JsonObject request = new JsonObject();
+    JsonArray resources = new JsonArray();
+    for (String resource : List.of("android:id/title", "android:id/icon", "id/button"))
+      resources.add(resource);
+    request.add("resources", resources);
+    request.addProperty("max_sites", 1);
+    JsonArray results = call(handle, constructor.newInstance(holder), "rea_resource_references", request)
+        .getAsJsonArray("resources");
+    require(results.size() == 3, "Resource results do not match the request");
+
+    JsonObject title = results.get(0).getAsJsonObject();
+    require(title.get("table").getAsString().equals("framework")
+        && title.getAsJsonArray("ids").get(0).getAsInt() == 0x01020016,
+        "android:id/title did not resolve through the framework map: " + title);
+    // One const load plus one packed and one sparse switch payload; max_sites keeps one.
+    require(title.get("total_sites").getAsInt() == 3 && title.getAsJsonArray("sites").size() == 1,
+        "android:id/title site count differs from the fixture: " + title);
+    JsonObject icon = results.get(1).getAsJsonObject();
+    JsonArray iconSites = icon.getAsJsonArray("sites");
+    require(icon.get("total_sites").getAsInt() == 1 && iconSites.size() == 1
+        && iconSites.get(0).getAsJsonObject().get("kind").getAsString().equals("switch_case")
+        && iconSites.get(0).getAsJsonObject().get("opcode").getAsString().equals("SPARSE_SWITCH_PAYLOAD"),
+        "android:id/icon sparse switch key was not reported: " + icon);
+
+    JsonObject button = results.get(2).getAsJsonObject();
+    JsonArray buttonSites = button.getAsJsonArray("sites");
+    JsonArray fields = button.getAsJsonArray("r_fields");
+    require(button.getAsJsonArray("ids").isEmpty() && button.get("total_sites").getAsInt() == 1
+        && buttonSites.get(0).getAsJsonObject().get("kind").getAsString().equals("r_field_read")
+        && buttonSites.get(0).getAsJsonObject().get("method_name").getAsString().equals("libraryRead"),
+        "Library R-field read was not reported without a resource table: " + button);
+    require(button.get("total_r_fields").getAsInt() == 1 && fields.size() == 1
+        && fields.get(0).getAsJsonObject().get("class_name").getAsString().equals("fixture.lib.R$id")
+        && fields.get(0).getAsJsonObject().get("origin").getAsString().equals("dex"),
+        "Library R declaration was not reported as DEX content: " + fields);
+
+    // Packed switch: 0x01020015..0x01020016 covers title; sparse covers icon and title.
+    request.addProperty("max_sites", 10);
+    JsonArray all = call(handle, constructor.newInstance(holder), "rea_resource_references", request)
+        .getAsJsonArray("resources").get(0).getAsJsonObject().getAsJsonArray("sites");
+    Set<String> observed = new TreeSet<>();
+    for (JsonElement element : all) {
+      JsonObject site = element.getAsJsonObject();
+      observed.add(site.get("method_name").getAsString() + ":" + site.get("kind").getAsString()
+          + ":" + site.get("opcode").getAsString() + "@" + site.get("dex_code_unit_offset").getAsInt());
+    }
+    require(observed.equals(new TreeSet<>(List.of("lookup:const_literal:CONST@0",
+        "dispatch:switch_case:PACKED_SWITCH_PAYLOAD@12", "dispatch:switch_case:SPARSE_SWITCH_PAYLOAD@20"))),
+        "android:id/title sites differ from the fixture: " + observed);
+    System.out.println("RESOURCE_REFERENCE_REGRESSION_PASS title_sites=3 switch=packed,sparse r_field=dex");
+  }
+
   private static void checkDirectInvokes(JsonObject refs, String dexEntry) {
     require(refs.get("total").getAsInt() == 1, "JADX using-node count changed");
     JsonArray sites = refs.getAsJsonArray("items").get(0).getAsJsonObject()
@@ -277,6 +349,8 @@ public class ReaJadxMetadataRegression {
       verifyInitializers(holder, config, constructor, handle, initializerFixture(args[1], args[2]));
       verifyDirectInvokes(holder, config, constructor, handle,
           Path.of(args[3]), Path.of(args[2]));
+      verifyResourceReferences(holder, config, constructor, handle,
+          Path.of(args[4]), Path.of(args[2]));
     } finally {
       BuildersKt.runBlocking(EmptyCoroutineContext.INSTANCE,
           (scope, continuation) -> holder.unload(continuation));

@@ -379,4 +379,19 @@ export const ADB_TOOL_CONTRACTS = [
       },
     ],
   },
+  {
+    name: "wait_adb_boot",
+    ...toolContractMetadata("wait_adb_boot"),
+    description:
+      "Wait until one device reports sys.boot_completed=1, probing getprop at a fixed interval and once more at the deadline, tolerating a device that is still offline or not yet listed. Returns boot_completed or timed_out with the last observed boot properties. Read-only; REA never boots or manages the emulator itself.",
+    kind: "adb-provider",
+    inputSchema: adbInputSchemas.wait_adb_boot,
+    outputSchema: evidenceResultOf(adbResultSchemas.wait_adb_boot),
+    examples: [
+      {
+        title: "Wait for an emulator to finish booting",
+        input: { serial: "emulator-5554", timeout_ms: 180000 },
+      },
+    ],
+  },
 ] as const satisfies readonly ToolContract[];

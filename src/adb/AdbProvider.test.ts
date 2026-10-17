@@ -1799,3 +1799,83 @@ it("reports cancellation arriving during the version probe", async () => {
     clearTimeout(timer);
   }
 });
+
+const bootStub = (value: string) => () =>
+  `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+if [ "$3" = "shell" ] && [ "$4" = "sh" ]; then printf '${value}|1|stopped\n'; exit 0; fi
+exit 1`;
+
+it("reports boot completion from the device boot properties", async () => {
+  const { binary } = await writeAdbStub(bootStub("1"));
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "wait_adb_boot",
+    input: {
+      serial: "emulator-5554",
+      timeout_ms: 5_000,
+      poll_interval_ms: 250,
+    },
+  });
+  expect(result).toMatchObject({
+    outcome: "boot_completed",
+    probes: 1,
+    sys_boot_completed: "1",
+    init_svc_bootanim: "stopped",
+    last_probe_error: null,
+  });
+});
+
+it("probes again at the deadline when the interval exceeds the timeout", async () => {
+  const { binary } = await writeAdbStub(bootStub(""));
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "wait_adb_boot",
+    input: {
+      serial: "emulator-5554",
+      timeout_ms: 1_000,
+      poll_interval_ms: 2_000,
+    },
+  });
+  expect(result).toMatchObject({
+    outcome: "timed_out",
+    probes: 2,
+    sys_boot_completed: null,
+  });
+  expect(result.waited_ms).toBeGreaterThanOrEqual(1_000);
+});
+
+it("keeps waiting through an unreachable device until the deadline", async () => {
+  const { binary } = await writeAdbStub(
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+printf "adb: device 'emulator-5554' not found\n" >&2
+exit 1`,
+  );
+  const result = await evidenceResult(providerOver(binary), {
+    operation: "wait_adb_boot",
+    input: {
+      serial: "emulator-5554",
+      timeout_ms: 1_000,
+      poll_interval_ms: 250,
+    },
+  });
+  expect(result).toMatchObject({ outcome: "timed_out" });
+  expect(result.probes).toBeGreaterThan(1);
+  expect(String(result.last_probe_error)).toContain("not found");
+});
+
+it("returns a non-transient probe failure instead of waiting it out", async () => {
+  const { binary } = await writeAdbStub(
+    () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
+printf "adb: insufficient permissions for device\n" >&2
+exit 1`,
+  );
+  const result = await providerOver(binary).execute({
+    operation: "wait_adb_boot",
+    input: {
+      serial: "emulator-5554",
+      timeout_ms: 5_000,
+      poll_interval_ms: 250,
+    },
+  });
+  expect(result.ok).toBe(false);
+  if (!result.ok)
+    expect(result.error.message).toContain("insufficient permissions");
+});

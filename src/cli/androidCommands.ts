@@ -122,4 +122,37 @@ export const registerAndroidCommands = (
           : { overload_index: options.overloadIndex }),
       }),
   });
+  cli.command(CLI_COMMANDS.traceAndroidResourceReferences, {
+    description:
+      "Map resource ids such as com.example:id/login to their DEX code sites",
+    args: z.object({
+      path,
+      resourceIds: z
+        .string()
+        .describe("Comma-separated [package:]type/name resource ids"),
+    }),
+    options: z.object({
+      maxSites: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Most code sites per resource (default 50)"),
+    }),
+    run: ({ args, options }) =>
+      execute(
+        CLI_COMMANDS.traceAndroidResourceReferences,
+        "trace_android_resource_references",
+        {
+          path: args.path,
+          resource_ids: args.resourceIds
+            .split(",")
+            .map((value) => value.trim())
+            .filter((value) => value !== ""),
+          ...(options.maxSites === undefined
+            ? {}
+            : { max_sites_per_resource: options.maxSites }),
+        },
+      ),
+  });
 };

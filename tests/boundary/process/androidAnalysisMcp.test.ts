@@ -133,6 +133,9 @@ it("publishes and executes all APK contracts with inline Evidence and no active 
       ...(contract.name === "inspect_android_method"
         ? { method_name: "onCreate" }
         : {}),
+      ...(contract.name === "trace_android_resource_references"
+        ? { resource_ids: ["fixture:id/search"] }
+        : {}),
     };
     const response = await client.callTool({
       name: contract.name,

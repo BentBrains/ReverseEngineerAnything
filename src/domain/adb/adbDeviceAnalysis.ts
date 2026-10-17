@@ -310,6 +310,25 @@ export const adbInputSchemas = {
       "Package whose processes are force-stopped",
     ),
   }),
+  wait_adb_boot: z.strictObject({
+    serial: deviceSerialSchema.describe(
+      "Device serial exactly as `adb devices` reports it",
+    ),
+    timeout_ms: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(600_000)
+      .default(120_000)
+      .describe("Longest time to wait for sys.boot_completed=1"),
+    poll_interval_ms: z
+      .number()
+      .int()
+      .min(250)
+      .max(30_000)
+      .default(2_000)
+      .describe("Delay between boot-property probes"),
+  }),
 } as const;
 
 /** Supported ADB-backed operations. */
@@ -419,6 +438,10 @@ export const adbRequestSchema = z.discriminatedUnion("operation", [
   z.strictObject({
     operation: z.literal("stop_adb_app"),
     input: adbInputSchemas.stop_adb_app,
+  }),
+  z.strictObject({
+    operation: z.literal("wait_adb_boot"),
+    input: adbInputSchemas.wait_adb_boot,
   }),
 ]);
 
@@ -747,6 +770,19 @@ export const adbResultSchemas = {
     client,
     serial: z.string().min(1),
     package_name: packageNameSchema,
+  }),
+  wait_adb_boot: z.strictObject({
+    client,
+    serial: z.string().min(1),
+    outcome: z.enum(["boot_completed", "timed_out"]),
+    waited_ms: z.number().int().nonnegative(),
+    probes: z.number().int().positive(),
+    /** Last observed values; null when the property was empty or unread. */
+    sys_boot_completed: z.string().nullable(),
+    dev_bootcomplete: z.string().nullable(),
+    init_svc_bootanim: z.string().nullable(),
+    /** Last adb failure while the device was unreachable, if any. */
+    last_probe_error: z.string().nullable(),
   }),
 } as const;
 

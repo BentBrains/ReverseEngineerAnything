@@ -51,6 +51,31 @@ export const androidInputSchemas = {
         "Index among same-name methods from inspect_android_class; requires method_name",
       ),
   }),
+  trace_android_resource_references: z.strictObject({
+    ...target,
+    resource_ids: z
+      .array(
+        z
+          .string()
+          .max(512)
+          .regex(
+            /^(?:[A-Za-z][A-Za-z0-9_.]*:)?[a-z][a-z0-9_-]*\/[A-Za-z0-9_.$]+$/u,
+            "Resource must be [package:]type/name, as uiautomator reports resource-id",
+          ),
+      )
+      .min(1)
+      .max(64)
+      .describe(
+        "Resources such as com.example:id/login or android:id/title; the android package resolves through the framework map",
+      ),
+    max_sites_per_resource: z
+      .number()
+      .int()
+      .min(1)
+      .max(1_000)
+      .default(50)
+      .describe("Most code sites returned per resource; totals stay exact"),
+  }),
 } as const;
 
 /** Optional retained delivery is separate from the engine's APK request. */
@@ -90,6 +115,10 @@ export const androidRequestSchema = z.discriminatedUnion("operation", [
   z.strictObject({
     operation: z.literal("trace_android_references"),
     input: androidInputSchemas.trace_android_references,
+  }),
+  z.strictObject({
+    operation: z.literal("trace_android_resource_references"),
+    input: androidInputSchemas.trace_android_resource_references,
   }),
 ]);
 
@@ -205,5 +234,49 @@ export const androidResultSchemas = {
     ),
     coverage: z.literal("complete"),
     reference_unit: z.literal("using_node"),
+  }),
+  trace_android_resource_references: z.strictObject({
+    ...common,
+    classes_scanned: z.number().int().nonnegative(),
+    methods_scanned: z.number().int().nonnegative(),
+    app_resource_names: z.number().int().nonnegative(),
+    resources: z.array(
+      z.strictObject({
+        requested: z.string(),
+        package_name: z.string().nullable(),
+        type: z.string(),
+        name: z.string(),
+        /** app: the APK resource table; framework: JADX's bundled android map. */
+        table: z.enum(["app", "framework"]),
+        resolution: z.enum(["resolved", "unresolved"]),
+        ids: z.array(z.string().regex(/^0x[0-9a-f]{8}$/u)),
+        total_r_fields: z.number().int().nonnegative(),
+        r_fields: z.array(
+          z.strictObject({
+            class_name: z.string(),
+            field_name: z.string(),
+            /** jadx_generated: JADX synthesized the R class; the APK does not contain it. */
+            origin: z.enum(["dex", "jadx_generated"]),
+          }),
+        ),
+        total_sites: z.number().int().nonnegative(),
+        /** partial: max_sites_per_resource or the transport budget bounded the lists. */
+        coverage: z.enum(["complete", "partial"]),
+        sites: z.array(
+          z.strictObject({
+            kind: z.enum(["const_literal", "switch_case", "r_field_read"]),
+            class_name: z.string(),
+            raw_class_name: z.string(),
+            top_class: z.string(),
+            method_name: z.string(),
+            raw_method_id: z.string(),
+            dex_entry: z.string(),
+            dex_code_unit_offset: z.number().int().nonnegative(),
+            opcode: z.string(),
+          }),
+        ),
+      }),
+    ),
+    scan_unit: z.literal("dex_instruction"),
   }),
 } as const;

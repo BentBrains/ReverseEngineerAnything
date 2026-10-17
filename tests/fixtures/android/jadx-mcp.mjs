@@ -169,6 +169,38 @@ for (const name of ["get_xrefs_to_class", "get_xrefs_to_method"])
       ],
     }),
   );
+register("rea_resource_references", ({ resources, max_sites }) =>
+  json({
+    classes_scanned: classes.length,
+    methods_scanned: methods.length,
+    app_resource_names: 1,
+    max_sites,
+    resources: resources.map((requested) => ({
+      requested,
+      package: "fixture",
+      type: "id",
+      name: requested.slice(requested.indexOf("/") + 1),
+      table: "app",
+      ids: [0x7f0c0001],
+      total_r_fields: 0,
+      r_fields: [],
+      total_sites: 1,
+      sites: [
+        {
+          kind: "const_literal",
+          class_name: "fixture.Target",
+          raw_class_name: "fixture.Target",
+          top_class: "fixture.Target",
+          method_name: "onCreate",
+          raw_method_id: "Lfixture/Target;->onCreate(Landroid/os/Bundle;)V",
+          dex_entry: "classes.dex",
+          dex_code_unit_offset: 0,
+          opcode: "CONST",
+        },
+      ],
+    })),
+  }),
+);
 await server.connect(new StdioServerTransport());
 // A refused cleanup must leave a live process for verified fixture teardown.
 // Otherwise stdin EOF races the ownership scan with the server's natural exit.

@@ -279,6 +279,17 @@ const results: Readonly<Record<string, unknown>> = {
     serial: "emulator-5554",
     package_name: "com.example.app",
   },
+  wait_adb_boot: {
+    client: clientIdentity,
+    serial: "emulator-5554",
+    outcome: "boot_completed",
+    waited_ms: 4000,
+    probes: 3,
+    sys_boot_completed: "1",
+    dev_bootcomplete: "1",
+    init_svc_bootanim: "stopped",
+    last_probe_error: null,
+  },
 };
 
 it("advertises exact valid ADB schemas and records inline evidence through MCP", async () => {
@@ -333,6 +344,7 @@ it("advertises exact valid ADB schemas and records inline evidence through MCP",
     "start_adb_app",
     "start_adb_activity",
     "stop_adb_app",
+    "wait_adb_boot",
   ] as const;
   for (const name of operationNames) expect(names, name).toContain(name);
 

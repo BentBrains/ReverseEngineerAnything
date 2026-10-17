@@ -102,6 +102,7 @@ existing analysis families directly, for example
 | `start_adb_app`         | **mutates device** | Resolves the package's launcher activity (`cmd package resolve-activity --brief`) and starts it (`am start -n`)                                                                                                                       |
 | `start_adb_activity`    | **mutates device** | Starts an intent (`am start -a` with optional URI, component, and up to 16 typed extras); preserves the activity manager's verdict                                                                                                    |
 | `stop_adb_app`          | **mutates device** | Force-stops every process of a package, ending a dynamic-analysis run                                                                                                                                                                 |
+| `wait_adb_boot`         | read               | Polls `sys.boot_completed`, `dev.bootcomplete`, `init.svc.bootanim` until boot completes or a final probe at the deadline; tolerates a device that is still offline                                                                   |
 
 For `inspect_adb_window`, `focus_contexts` retains each display header, its exact
 display ID when recognized, and every focus declaration with its original line.

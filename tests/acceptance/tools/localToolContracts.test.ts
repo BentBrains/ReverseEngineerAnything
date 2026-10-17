@@ -156,6 +156,10 @@ const pathRequests: readonly [string, Record<string, unknown>][] = [
     { path: nul, class_name: "probe.Class", method_name: "run" },
   ],
   ["trace_android_references", { path: nul, class_name: "probe.Class" }],
+  [
+    "trace_android_resource_references",
+    { path: nul, resource_ids: ["com.example:id/login"] },
+  ],
   ["inspect_firmware_regions", { path: nul }],
   ["extract_firmware", { path: nul, output_directory: "/tmp/out" }],
   ["extract_firmware", { path: "/tmp/firmware.bin", output_directory: nul }],

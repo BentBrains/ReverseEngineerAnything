@@ -407,4 +407,30 @@ export const registerAdbCommands = (
         package: args.package,
       }),
   });
+  cli.command(CLI_COMMANDS.waitAdbBoot, {
+    description: "Wait until a device reports sys.boot_completed=1",
+    args: z.object({ serial }),
+    options: z.object({
+      "timeout-ms": z
+        .number()
+        .int()
+        .optional()
+        .describe("Longest wait in milliseconds (default 120000)"),
+      "poll-interval-ms": z
+        .number()
+        .int()
+        .optional()
+        .describe("Delay between probes in milliseconds (default 2000)"),
+    }),
+    run: ({ args, options }) =>
+      execute(CLI_COMMANDS.waitAdbBoot, "wait_adb_boot", {
+        serial: args.serial,
+        ...(options["timeout-ms"] === undefined
+          ? {}
+          : { timeout_ms: options["timeout-ms"] }),
+        ...(options["poll-interval-ms"] === undefined
+          ? {}
+          : { poll_interval_ms: options["poll-interval-ms"] }),
+      }),
+  });
 };

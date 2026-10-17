@@ -14,6 +14,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type {
   ExecutionOptions,
@@ -152,6 +153,13 @@ const SCREEN_TIMEOUT_MS = 60_000;
 const SCREEN_MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const BUGREPORT_TIMEOUT_MS = 600_000;
 const BUGREPORT_MAX_OUTPUT_BYTES = 1024 * 1024;
+const BOOT_PROBE_TIMEOUT_MS = 15_000;
+const BOOT_PROBE_MAX_OUTPUT_BYTES = 64 * 1024;
+
+const BOOT_PROBE_SCRIPT = String.raw`printf '%s|%s|%s\n' "$(getprop sys.boot_completed)" "$(getprop dev.bootcomplete)" "$(getprop init.svc.bootanim)"`;
+
+const emptyToNull = (value: string | undefined): string | null =>
+  value === undefined || value.trim() === "" ? null : value.trim();
 const UNPARSED_LINES_REPORTED = 10;
 
 /** Carry the exact digest owner through caller-specific partial-result mapping. */
@@ -1889,6 +1897,15 @@ export class AdbProvider {
           request.input,
           signal,
         );
+      case "wait_adb_boot":
+        return this.waitForBoot(
+          operation,
+          selection,
+          client,
+          provider,
+          request.input,
+          signal,
+        );
     }
   }
 
@@ -2905,6 +2922,105 @@ export class AdbProvider {
         },
       ),
     );
+  }
+
+  /** Wait for `sys.boot_completed=1`, tolerating an unreachable booting device. */
+  private async waitForBoot(
+    operation: "wait_adb_boot",
+    selection: AdbBinarySelection,
+    client: ClientIdentity,
+    provider: ProviderIdentity,
+    input: {
+      readonly serial: string;
+      readonly timeout_ms: number;
+      readonly poll_interval_ms: number;
+    },
+    signal: AbortSignal | undefined,
+  ): Promise<Result<AnalysisExecution, AnalysisError>> {
+    const started = Date.now();
+    let probes = 0;
+    let lastError: string | null = null;
+    let properties: [string | null, string | null, string | null] = [
+      null,
+      null,
+      null,
+    ];
+    for (;;) {
+      probes += 1;
+      const probeBudget = input.timeout_ms - (Date.now() - started);
+      const ran = await runAdb(
+        operation,
+        input.serial,
+        selection.binary,
+        adbArguments(input.serial, ["shell", "sh", "-c", BOOT_PROBE_SCRIPT]),
+        {
+          timeoutMs: Math.max(
+            1_000,
+            Math.min(BOOT_PROBE_TIMEOUT_MS, probeBudget),
+          ),
+          maxOutputBytes: BOOT_PROBE_MAX_OUTPUT_BYTES,
+        },
+        signal,
+      );
+      if (!ran.ok) {
+        // Only a device that is still appearing can boot by waiting; any other
+        // failure (unauthorized, permissions, missing adb) keeps its tagged error.
+        const transient =
+          ran.error instanceof AnalysisTimeoutError ||
+          /device[^\n]*not found|device offline|still authorizing|still connecting|no devices|error: closed/iu.test(
+            ran.error.message,
+          );
+        if (!transient) return ran;
+        lastError = ran.error.message;
+      } else {
+        const line = ran.value.stdout.trim().split(/\r?\n/u).at(-1) ?? "";
+        const fields = line.split("|");
+        if (fields.length === 3) {
+          properties = [
+            emptyToNull(fields[0]),
+            emptyToNull(fields[1]),
+            emptyToNull(fields[2]),
+          ];
+          lastError = null;
+        } else lastError = `unrecognized boot probe output: ${line}`;
+      }
+      const waited = Date.now() - started;
+      const completed = properties[0] === "1";
+      // Probe once more at the deadline instead of stopping a full interval early.
+      const remaining = input.timeout_ms - waited;
+      if (completed || remaining <= 0)
+        return ok(
+          createAnalysisExecution(
+            {
+              client,
+              serial: input.serial,
+              outcome: completed ? "boot_completed" : "timed_out",
+              waited_ms: waited,
+              probes,
+              sys_boot_completed: properties[0],
+              dev_bootcomplete: properties[1],
+              init_svc_bootanim: properties[2],
+              last_probe_error: lastError,
+            },
+            provider,
+            {
+              limitations: [
+                "Boot completion is sys.boot_completed=1 as the device reports it; services and the launcher may still be settling",
+                "Probe failures while the device is unreachable are retried until the deadline; only the last one is reported",
+              ],
+            },
+          ),
+        );
+      try {
+        await delay(
+          Math.min(input.poll_interval_ms, remaining),
+          undefined,
+          signal === undefined ? {} : { signal },
+        );
+      } catch (cause) {
+        return err(new AnalysisCancelledError(operation, { cause }));
+      }
+    }
   }
 
   private async captureScreen(

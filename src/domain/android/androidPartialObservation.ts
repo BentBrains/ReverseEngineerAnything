@@ -10,6 +10,7 @@ const operationSchema = z.enum([
   "inspect_android_class",
   "inspect_android_method",
   "trace_android_references",
+  "trace_android_resource_references",
 ]);
 
 /** JSON-safe Android provider facts collected before an analysis failure. */
