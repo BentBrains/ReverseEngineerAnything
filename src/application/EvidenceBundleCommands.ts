@@ -44,7 +44,7 @@ export const exportEvidenceBundleCommand = async (
     overwrite,
     resources,
   );
-  if (written.ok) return projectWrite(loaded.value, written);
+  if (written.ok) return projectExportedEvidenceBundle(loaded.value, written);
 
   let cleanupSucceeded = false;
   try {
@@ -58,7 +58,7 @@ export const exportEvidenceBundleCommand = async (
     written.error instanceof EvidenceFileError &&
     written.error.published
   ) {
-    return projectWrite(loaded.value, {
+    return projectExportedEvidenceBundle(loaded.value, {
       ok: true,
       value: written.error.published,
     });
@@ -90,7 +90,13 @@ export const compareEvidenceBundlesCommand = async (input: {
   }
 };
 
-const projectWrite = (
+/**
+ * Project one written bundle into the complete `export_evidence_bundle`
+ * result shape. This is the single owner of that projection: the CLI command
+ * and the MCP handler both consume it so their output cannot drift from the
+ * advertised contract.
+ */
+export const projectExportedEvidenceBundle = (
   bundle: EvidenceBundle,
   written: Awaited<ReturnType<typeof writeEvidenceBundle>>,
 ): Result<JsonValue, AnalysisError> =>
@@ -99,5 +105,6 @@ const projectWrite = (
         path: written.value.path,
         bytes: written.value.bytes,
         records: bundle.records.length,
+        unknowns: bundle.unknowns.length,
       })
     : err(written.error);

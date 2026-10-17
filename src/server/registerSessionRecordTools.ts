@@ -1,6 +1,7 @@
 import type { EvidenceMcpServer } from "./EvidenceMcpServer.js";
 
 import type { BinarySessionPort } from "../application/binary/BinarySessionPort.js";
+import { projectExportedEvidenceBundle } from "../application/EvidenceBundleCommands.js";
 import {
   readImmutableEvidenceBundle,
   writeEvidenceBundle,
@@ -57,17 +58,10 @@ const registerExportEvidenceTool = ({
         resources,
         context.mcpReq.signal,
       );
-      return written.ok
-        ? server.delivery.toCallToolResult(
-            ok({
-              path: written.value.path,
-              bytes: written.value.bytes,
-              records: bundle.records.length,
-              unknowns: bundle.unknowns.length,
-            }),
-            exportContract,
-          )
-        : server.delivery.toCallToolResult(written, exportContract);
+      return server.delivery.toCallToolResult(
+        projectExportedEvidenceBundle(bundle, written),
+        exportContract,
+      );
     },
   );
 };
