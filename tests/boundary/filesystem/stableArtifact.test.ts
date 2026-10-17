@@ -1,4 +1,5 @@
 import {
+  appendFile,
   lstat,
   open,
   rename,
@@ -9,7 +10,10 @@ import {
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { expect, it, onTestFinished } from "vitest";
-import { readStableArtifact } from "../../../src/artifacts/readStableArtifact.js";
+import {
+  readStableArtifact,
+  readStableArtifactRanges,
+} from "../../../src/artifacts/readStableArtifact.js";
 import {
   ArtifactFileCleanupFailure,
   ArtifactFileCancelled,
@@ -292,4 +296,66 @@ it("does not turn a retention callback abort into completed-file cancellation", 
     file.release();
     await scope.close();
   }
+});
+
+it("decodes ranges and hashes the whole file through one admitted descriptor", async () => {
+  const root = await createTestTempDirectory("rea-stable-ranges-");
+  const path = join(root, "source.bin");
+  const bytes = Buffer.from("0123456789abcdef");
+  await writeFile(path, bytes);
+  const {
+    result,
+    sha256,
+    bytes: size,
+  } = await readStableArtifactRanges(path, async (source) =>
+    Buffer.concat([await source.read(14, 2), await source.read(0, 3)]),
+  );
+  expect(result.toString()).toBe("ef012");
+  expect(size).toBe(16);
+  expect(sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+  await expect(
+    readStableArtifactRanges(path, (source) => source.read(10, 7)),
+  ).rejects.toBeInstanceOf(RangeError);
+  const link = join(root, "link.bin");
+  await symlink(path, link);
+  await expect(
+    readStableArtifactRanges(link, (source) => source.read(0, 1)),
+  ).rejects.toMatchObject({ reason: "path" });
+});
+
+it("stops hashing a file that grows after its ranges were decoded", async () => {
+  const root = await createTestTempDirectory("rea-stable-ranges-grow-");
+  const path = join(root, "selected");
+  await writeFile(path, "original evidence");
+  await expect(
+    readStableArtifactRanges(path, async (source) => {
+      await appendFile(path, Buffer.alloc(1 << 20));
+      return source.read(0, 4);
+    }),
+  ).rejects.toMatchObject({
+    reason: "integrity",
+    message: expect.stringContaining("grew during read"),
+  });
+});
+
+it("rejects a file changed after its ranges were decoded", async () => {
+  const root = await createTestTempDirectory("rea-stable-ranges-change-");
+  const path = join(root, "selected");
+  await writeFile(path, "original evidence");
+  let inspected = 0;
+  const reading = readStableArtifactRanges(
+    path,
+    (source) => source.read(0, 4),
+    undefined,
+    undefined,
+    {
+      async lstat(selected) {
+        inspected++;
+        if (inspected === 2) await unlink(selected);
+        return lstat(selected, { bigint: true });
+      },
+      open,
+    },
+  );
+  await expect(reading).rejects.toMatchObject({ reason: "integrity" });
 });

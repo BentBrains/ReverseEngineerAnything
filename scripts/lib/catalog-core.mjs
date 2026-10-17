@@ -71,6 +71,8 @@ const SOURCE_PATHS = {
   goProvider: "dist/go/GoBinaryProvider.js",
   rustContracts: "dist/contracts/rust/rustToolContracts.js",
   rustProvider: "dist/rust/RustBinaryProvider.js",
+  unrealContracts: "dist/contracts/unreal/unrealToolContracts.js",
+  unrealProvider: "dist/unreal/UnrealPakProvider.js",
   artifactContracts: "dist/contracts/artifactToolContracts.js",
   managedContracts: "dist/contracts/managed/managedToolContracts.js",
   firmwareContracts: "dist/contracts/firmware/firmwareToolContracts.js",

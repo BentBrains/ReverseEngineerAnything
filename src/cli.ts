@@ -6,6 +6,7 @@ import { createDirectAnalysis } from "./composition/directAnalysis.js";
 import { registerEvmCommands } from "./cli/evmCommands.js";
 import { registerGoCommands } from "./cli/goCommands.js";
 import { registerRustCommands } from "./cli/rustCommands.js";
+import { registerUnrealCommands } from "./cli/unrealCommands.js";
 import { registerSqliteCommands } from "./cli/sqliteCommands.js";
 import { registerAnalysisViewCommands } from "./cli/analysisViewCommands.js";
 import { registerBinaryDiagnosticsCommands } from "./cli/binaryDiagnosticsCommands.js";
@@ -107,6 +108,7 @@ export const createCli = (
   registerEvmCommands(cli, logger, environment);
   registerGoCommands(cli, logger);
   registerRustCommands(cli, logger);
+  registerUnrealCommands(cli, logger);
   registerSqliteCommands(cli, logger, environment);
   registerArtifactCommands(cli, logger, analysis.runProviderAnalysis);
   registerManagedCommands(cli, logger, analysis.runProviderAnalysis);

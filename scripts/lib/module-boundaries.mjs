@@ -9,6 +9,7 @@ const MIGRATED_PROVIDER_ROOTS = new Set([
   "evm",
   "go",
   "rust",
+  "unreal",
   "wasm",
   "captures",
   "signals",

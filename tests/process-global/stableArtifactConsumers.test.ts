@@ -55,11 +55,13 @@ import { ArtifactResourceScope } from "../../src/artifacts/ArtifactResourceScope
 import { ArtifactReaderFailure } from "../../src/artifacts/ArtifactReader.js";
 import { GoBinaryProvider } from "../../src/go/GoBinaryProvider.js";
 import { PeResourcesProvider } from "../../src/native/pe/PeResourcesProvider.js";
+import { UnrealPakProvider } from "../../src/unreal/UnrealPakProvider.js";
 import { inspectPeResourcesInputSchema } from "../../src/domain/native/peResources.js";
 import { peResourceFixture } from "../../src/native/pe/PeResources.fixture.js";
 import { createServer } from "../../src/server/createServer.js";
 import { createTestBinarySession } from "../fixtures/binarySession.js";
 import { createRustImage } from "../fixtures/rust/image.js";
+import { createPakFixture } from "../fixtures/unreal/pak.js";
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 import { parseMcpToolError } from "../fixtures/mcpToolError.js";
 import { mcpTest } from "../support/mcp/mcpFixture.js";
@@ -77,6 +79,7 @@ const staticProviders = [
   ["Rust", () => new RustBinaryProvider()],
   ["Go", () => new GoBinaryProvider()],
   ["PE", () => new PeResourcesProvider()],
+  ["Unreal pak", () => new UnrealPakProvider()],
 ] as const;
 
 it.each(staticProviders)(
@@ -86,6 +89,8 @@ it.each(staticProviders)(
     const provider = makeProvider();
     if (provider instanceof PeResourcesProvider)
       await writeFile(path, peResourceFixture().bytes);
+    if (provider instanceof UnrealPakProvider)
+      await writeFile(path, createPakFixture({ layout: "v11" }).bytes);
     const controller = new AbortController();
     const reason = new Error("cancel during confirmed descriptor close");
     fault.blockNew = false;

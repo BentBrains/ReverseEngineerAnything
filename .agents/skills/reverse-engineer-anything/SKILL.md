@@ -169,6 +169,11 @@ explicit path or endpoint and do not need it.
   absent metadata does not prove a binary is not Go, and unparsed text records
   remain explicit. See the
   [Go binary guide](https://github.com/morluto/rea/blob/main/docs/go-binaries.md).
+- Unreal Engine `.pak` contents: `inspect_unreal_pak` with the explicit local
+  file; select `detail: "summary"` first for counts, then page entries through
+  `inspect_analysis_view`. Versions 1 to 12; only the footer and index are read,
+  nothing is extracted, decompressed or decrypted. See the
+  [Unreal pak guide](https://github.com/morluto/rea/blob/main/docs/unreal-pak.md).
 - Embedded cargo-auditable Rust dependency metadata: `inspect_rust_binary`
   with the explicit local ELF, PE, or thin Mach-O file. This built-in
   target-free inspection requires no Rust installation or disassembler. Preserve
