@@ -64,8 +64,11 @@ const PROJECT_POLICIES = {
     // cleanup. Reuse the immutable graph; module mocks belong in process-global.
     isolate: false,
     // Long-lived workers should collect temporary command/schema allocations
-    // before their two heaps compete with the real CLI child processes.
-    execArgv: ["--max-old-space-size=384"],
+    // before their two heaps compete with the real CLI child processes. The
+    // shared graph plus V8 coverage instrumentation of the full CLI module
+    // set no longer fits 384 MiB on current main, which killed CI workers
+    // after their files had passed; keep the budget one step above that.
+    execArgv: ["--max-old-space-size=512"],
   },
   "process-boundary": {
     pool: "forks" as const,
