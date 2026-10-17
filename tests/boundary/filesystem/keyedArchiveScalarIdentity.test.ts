@@ -9,7 +9,12 @@ import { parseEvidence } from "../../../src/domain/evidence.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 
-const cases = ["unsafe-integer", "integral-real"] as const;
+const cases = [
+  "unsafe-integer",
+  "integral-real",
+  "hexadecimal-integer",
+  "unsafe-hexadecimal-integer",
+] as const;
 const fixture = async (kind: (typeof cases)[number]) => {
   const root = await createTestTempDirectory("rea-integer-scalar-");
   const xml = build({
@@ -21,7 +26,11 @@ const fixture = async (kind: (typeof cases)[number]) => {
     "<string>__VALUE__</string>",
     kind === "unsafe-integer"
       ? "<integer>9007199254740993</integer>"
-      : "<real>9007199254740992</real>",
+      : kind === "hexadecimal-integer"
+        ? "<integer>0x2A</integer>"
+        : kind === "unsafe-hexadecimal-integer"
+          ? "<integer>0x20000000000001</integer>"
+          : "<real>9007199254740992</real>",
   );
   const bytes = Buffer.from(xml);
   const path = join(root, "archive.plist");
@@ -65,8 +74,22 @@ const verify = (
   expect(result.truncated).toBe(false);
   const value = result.objects.find(({ id }) => id === 1)?.value;
   expect(value).toBeDefined();
+  const precisionNote = result.limitations.some(
+    (note) =>
+      /integer|number/iu.test(note) &&
+      /precision|exact range|rounded|completely observed/iu.test(note),
+  );
   if (kind === "integral-real") expect(value).toBe(9007199254740992);
-  else {
+  else if (kind === "hexadecimal-integer") {
+    // Apple's parser reads 0x2A as 42; the literal is classified, not unknown.
+    expect(value).toBe(42);
+    expect(precisionNote).toBe(false);
+  } else if (kind === "unsafe-hexadecimal-integer") {
+    expect(value).toEqual({
+      $plist_type: "integer",
+      decimal: "9007199254740993",
+    });
+  } else {
     const exact =
       typeof value === "object" &&
       value !== null &&

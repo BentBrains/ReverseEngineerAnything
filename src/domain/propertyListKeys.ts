@@ -1,6 +1,7 @@
 import { normalizeLineEndings, type Document, type Node } from "@xmldom/xmldom";
 import { parse, parseOpenStep } from "plist";
 
+import { parseHexadecimalPlistInteger } from "./apple/plistNumbers.js";
 import { MAX_PLIST_DEPTH } from "./apple/plistValue.js";
 import { parseXmlDocument } from "./xmlDocument.js";
 
@@ -85,6 +86,8 @@ export const decodeXmlText = (text: string): string =>
  * Decode an XML plist whose dictionaries may use the legal key `__proto__`,
  * which the `plist` decoder rejects outright. Those entries are omitted and
  * counted so callers can report them instead of failing the whole document.
+ * Hexadecimal `<integer>` text, which Apple's parser accepts and the decoder
+ * reads as zero, is decoded to the value the parser reports.
  */
 export const parseXmlPropertyList = (
   text: string,
@@ -115,7 +118,7 @@ export const parseXmlPropertyList = (
   if (!parsed.ok) throw parsed.error;
   const document = parsed.value;
   assertXmlPlistDepthWithinLimit(document);
-  const { substituted, placeholder } = substitutePrototypeKeys(
+  const { substituted, placeholder } = substituteDecoderDivergences(
     normalized,
     document,
   );
@@ -323,17 +326,65 @@ const assertXmlPlistDepthWithinLimit = (document: Document): void => {
   }
 };
 
-/** Locate keys with the same XML parser and first-child semantics as plist. */
-const substitutePrototypeKeys = (text: string, document: Document) => {
+/** A first child the pinned decoder reads, and the text it must read instead. */
+interface FirstChildSubstitution {
+  readonly node: Node;
+  readonly text: string;
+}
+
+/** Order substitutions by source position, as xmldom's one-based locators report it. */
+const compareSourcePosition = (
+  first: FirstChildSubstitution,
+  second: FirstChildSubstitution,
+): number =>
+  (first.node.lineNumber ?? 0) - (second.node.lineNumber ?? 0) ||
+  (first.node.columnNumber ?? 0) - (second.node.columnNumber ?? 0);
+
+/** Keys the decoder rejects, located with its XML parser and first-child semantics. */
+const prototypeKeySubstitutions = (
+  document: Document,
+): { substitutions: FirstChildSubstitution[]; placeholder: string } => {
   const keys = Array.from(document.getElementsByTagName("key"));
   const decodedKeys = new Set(keys.map((key) => key.firstChild?.nodeValue));
   let placeholder = "__rea_prototype_key__";
   while (decodedKeys.has(placeholder)) placeholder = `_${placeholder}`;
+  const substitutions = keys.flatMap((key) => {
+    const node = key.firstChild;
+    return node !== null && node.nodeValue === PROTOTYPE_KEY
+      ? [{ node, text: placeholder }]
+      : [];
+  });
+  return { substitutions, placeholder };
+};
 
-  const omitted = keys
-    .map((key) => key.firstChild)
-    .filter((node) => node?.nodeValue === PROTOTYPE_KEY);
-  if (omitted.length === 0) return { substituted: text, placeholder };
+/**
+ * Hexadecimal integers Apple's parser accepts. The decoder reads only the
+ * first child of an `<integer>` element as a decimal literal, so `0x2A`
+ * becomes `0`; substitute the exact decimal digits of the same value.
+ */
+const hexadecimalIntegerSubstitutions = (
+  document: Document,
+): FirstChildSubstitution[] =>
+  Array.from(document.getElementsByTagName("integer")).flatMap((element) => {
+    const node = element.firstChild;
+    if (node === null || node.nodeValue === null) return [];
+    const exact = parseHexadecimalPlistInteger(node.nodeValue);
+    return exact === undefined ? [] : [{ node, text: exact.toString() }];
+  });
+
+/**
+ * Prefix each located first child with a CDATA section holding the text the
+ * decoder must read. The decoder reads only that first child, so the original
+ * text remains in the source without changing the decoded value.
+ */
+const substituteDecoderDivergences = (text: string, document: Document) => {
+  const { substitutions: keys, placeholder } =
+    prototypeKeySubstitutions(document);
+  const substitutions = [
+    ...keys,
+    ...hexadecimalIntegerSubstitutions(document),
+  ].sort(compareSourcePosition);
+  if (substitutions.length === 0) return { substituted: text, placeholder };
 
   // xmldom uses one-based locators in document order. Scan forward only to
   // needed lines instead of retaining an offset for every source newline.
@@ -341,20 +392,20 @@ const substitutePrototypeKeys = (text: string, document: Document) => {
   let lineStart = 0;
   const parts: string[] = [];
   let cursor = 0;
-  for (const node of omitted) {
-    const nodeLine = node?.lineNumber;
-    const column = node?.columnNumber;
+  for (const { node, text: replacement } of substitutions) {
+    const nodeLine = node.lineNumber;
+    const column = node.columnNumber;
     if (nodeLine === undefined || column === undefined)
-      throw new TypeError("XML plist key has no source location");
+      throw new TypeError("XML plist value has no source location");
     while (line < nodeLine) {
       const newline = text.indexOf("\n", lineStart);
       if (newline === -1)
-        throw new TypeError("XML plist key has an invalid source location");
+        throw new TypeError("XML plist value has an invalid source location");
       lineStart = newline + 1;
       line += 1;
     }
     const offset = lineStart + column - 1;
-    parts.push(text.slice(cursor, offset), `<![CDATA[${placeholder}]]>`);
+    parts.push(text.slice(cursor, offset), `<![CDATA[${replacement}]]>`);
     cursor = offset;
   }
   parts.push(text.slice(cursor));

@@ -1,4 +1,7 @@
-import type { PlistNumberLiterals } from "../../domain/apple/plistNumbers.js";
+import {
+  parsePlistIntegerLiteral,
+  type PlistNumberLiterals,
+} from "../../domain/apple/plistNumbers.js";
 import { decodeXmlText } from "../../domain/propertyListKeys.js";
 import { hasBinaryPlistSignature } from "../../domain/apple/appleArchiveFormat.js";
 
@@ -9,11 +12,11 @@ const collector = () => {
   let incompleteMetadata = false;
   return {
     integer: (literal: string) => {
-      if (!/^[+-]?\d+$/u.test(literal)) {
+      const exact = parsePlistIntegerLiteral(literal);
+      if (exact === undefined) {
         incompleteMetadata = true;
         return;
       }
-      const exact = BigInt(literal);
       if (
         exact >= BigInt(Number.MIN_SAFE_INTEGER) &&
         exact <= BigInt(Number.MAX_SAFE_INTEGER)

@@ -579,8 +579,10 @@ digests identify the original serialized bytes.
 ## Keyed archive integer precision
 
 The archive reader observes XML number element types and binary number markers.
-Integers beyond the exact range of a JSON number are reported with the original
-decimal text as `{ "$plist_type": "integer", "decimal": "<exact digits>" }` when
+XML `<integer>` text may use the `0x` hexadecimal spelling Apple's parser
+accepts; it decodes to the same value as its decimal spelling. Integers beyond
+the exact range of a JSON number are reported with the original value as
+decimal text, `{ "$plist_type": "integer", "decimal": "<exact digits>" }`, when
 that source value can be associated unambiguously. Integral real values remain
 numbers. Colliding integer/real values, unclassified numbers, and malformed UID
 markers remain decoded with an explicit precision limitation. The limitation

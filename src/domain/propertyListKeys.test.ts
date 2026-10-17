@@ -73,6 +73,63 @@ it("keeps entity-like text beyond Unicode in comments and CDATA", () => {
   });
 });
 
+it.each([
+  ["0x2A", 42],
+  ["0X2a", 42],
+  ["+0x2A", 42],
+  ["-0x2A", -42],
+  ["&#48;x2A", 42],
+  ["<![CDATA[0x2A]]>", 42],
+  ["0x2A<!-- trailing comment -->", 42],
+  ["\n0x2A\n", 42],
+  // 2^53 + 1 rounds like its decimal spelling; exact text is observed separately.
+  ["0x20000000000001", 9007199254740992],
+  ["0xFFFFFFFFFFFFFFFF", Number(0xffffffffffffffffn)],
+])(
+  "decodes the hexadecimal integer %s as Apple's parser does",
+  (text, value) => {
+    // Keys the decoder rejects before and after the integer exercise substitution order.
+    const parsed = parseXmlPropertyList(
+      plist(
+        `<dict><key>__proto__</key><string>x</string>\n<key>hex</key><integer>${text}</integer><key>decimal</key><integer>42</integer><key>list</key><array><integer>${text}</integer><dict><key>__proto__</key><integer>${text}</integer></dict></array></dict>`,
+      ),
+    );
+    expect(parsed).toEqual({
+      value: { hex: value, decimal: 42, list: [value, {}] },
+      omittedPrototypeKeys: 2,
+    });
+  },
+);
+
+it("keeps hexadecimal text outside integer elements and non-literal integers as decoded", () => {
+  const text = plist(
+    "<dict><key>0x2A</key><string>0x2A</string><key>real</key><real>0x2A</real><key>incomplete</key><integer>0x</integer><key>stray</key><integer>0x1G</integer></dict>",
+  );
+  expect(parseXmlPropertyList(text)).toEqual({
+    value: parse(text),
+    omittedPrototypeKeys: 0,
+  });
+  expect(parseXmlPropertyList(text).value).toEqual({
+    "0x2A": "0x2A",
+    real: 0,
+    incomplete: 0,
+    stray: 0,
+  });
+});
+
+it("preserves the pinned decoder's first-child integer semantics", () => {
+  // The decoder reads only the first child of an integer; the substitution
+  // reads that same child as Apple's parser reads the literal.
+  const text = plist(
+    "<dict><key>mixed</key><integer>0x2A<string>1</string></integer><key>trailing</key><integer><string>1</string>0x2A</integer></dict>",
+  );
+  // A first child that is not text has no literal; the decoder owns that value.
+  expect(parseXmlPropertyList(text)).toEqual({
+    value: { mixed: 42, trailing: Number.NaN },
+    omittedPrototypeKeys: 0,
+  });
+});
+
 it("omits own __proto__ entries that JSON decoding creates", () => {
   const decoded: unknown = JSON.parse(
     '{"__proto__":{"x":1},"a":[{"__proto__":2,"b":3}]}',
