@@ -8,6 +8,7 @@ import {
   AnalysisCancelledError,
   AnalysisInputError,
   AnalysisOutputError,
+  AnalysisResourceConstraintError,
   AnalysisTimeoutError,
 } from "../../domain/analysisErrorCore.js";
 import {
@@ -22,6 +23,16 @@ const OPERATION = "recover_javascript_sources";
 /** Fingerprint exact selected or derived bytes. */
 export const recoveryDigest = (bytes: Uint8Array): string =>
   createHash("sha256").update(bytes).digest("hex");
+
+/** A file exceeded the byte bound its caller selected; the caller owns what that bound means. */
+class RecoveryFileSizeError extends AnalysisOutputError {
+  constructor(
+    reason: string,
+    readonly maximum: number,
+  ) {
+    super(OPERATION, reason);
+  }
+}
 
 /** Read a stable regular file without retaining bytes during engine fingerprinting. */
 const scanRecoveryFile = async (
@@ -54,9 +65,9 @@ const scanRecoveryFile = async (
   try {
     const before = await handle.stat();
     if (before.size > maximum)
-      throw new AnalysisOutputError(
-        OPERATION,
+      throw new RecoveryFileSizeError(
         `Expected a regular file no larger than ${String(maximum)} bytes: ${path}`,
+        maximum,
       );
     let bytes = 0;
     for await (const raw of handle.createReadStream({ autoClose: false })) {
@@ -64,9 +75,9 @@ const scanRecoveryFile = async (
       const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
       bytes += chunk.length;
       if (bytes > maximum)
-        throw new AnalysisOutputError(
-          OPERATION,
+        throw new RecoveryFileSizeError(
           `File exceeds ${String(maximum)} bytes: ${path}`,
+          maximum,
         );
       hash.update(chunk);
       consume(chunk);
@@ -138,14 +149,43 @@ const snapshotRecoveryInput = async (
   let bytes: Buffer;
   try {
     bytes = await readRecoveryFile(path, maximum, signal);
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (cause: unknown) {
     if (cause instanceof AnalysisCancelledError) throw cause;
+    // The operation-wide input allowance is a deterministic byte budget, not
+    // a malformed argument; the same selection fails again unchanged.
+    if (cause instanceof RecoveryFileSizeError)
+      throw new AnalysisResourceConstraintError(
+        OPERATION,
+        "file-size",
+        `Selected JavaScript input ${path} exceeds the ${String(cause.maximum)} bytes remaining of the ${String(RECOVERY_LIMITS.inputBytes)}-byte total input allowance`,
+        {
+          maximum_input_bytes: RECOVERY_LIMITS.inputBytes,
+          remaining_input_bytes: cause.maximum,
+        },
+        {
+          cause,
+          retryable: false,
+          remediationAction:
+            "Select JavaScript inputs whose combined size is within maximum_input_bytes. Do not truncate required source; retrying the unchanged selection will fail again.",
+        },
+      );
     throw recoveryInputFailure(
       "path",
       `Cannot snapshot UTF-8 JavaScript input ${path}: ${recoveryFailureMessage(cause)}`,
       cause,
     );
+  }
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (cause: unknown) {
+    throw new AnalysisInputError(OPERATION, { cause }, [
+      {
+        path: ["path"],
+        reason: "invalid_format",
+        expected: "UTF-8",
+        message: `JavaScript input is not valid UTF-8: ${path}`,
+      },
+    ]);
   }
   await mkdir(dirname(snapshotPath), { recursive: true, mode: 0o700 });
   await writeFile(snapshotPath, bytes, { flag: "wx", mode: 0o600 });

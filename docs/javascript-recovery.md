@@ -133,8 +133,11 @@ Each operation uses one worker, a 1 GiB address-space ceiling and a 120-second
 deadline; it accepts up to 64 MiB of total input across all selected files and
 128 MiB/10000 entries of staged
 output, with 8 MiB per diagnostic/report stream. Exceeding a limit is an explicit
-failure with rollback. These limits apply per operation and do not claim aggregate
-host containment across concurrent callers.
+failure with rollback. Selected inputs beyond the total input allowance return a
+non-retryable `resource_constraint` with `resource: "file-size"` and
+`reported_limits.maximum_input_bytes`/`remaining_input_bytes`; input that is not
+valid UTF-8 is an `invalid_format` request issue. These limits apply per
+operation and do not claim aggregate host containment across concurrent callers.
 
 See [testing.md](testing.md#javascript-source-recovery) for the focused real
 Wakaru CLI/MCP lane and its source-owned compiler fixtures. Other host platforms

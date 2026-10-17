@@ -528,7 +528,9 @@ describe.skipIf(process.platform !== "linux" || process.arch !== "x64")(
         output_directory: fixture.output,
       });
       if (result.ok) throw new Error("expected aggregate capacity failure");
-      expect(projectAnalysisError(result.error).code).toBe("invalid_request");
+      expect(projectAnalysisError(result.error).code).toBe(
+        "resource_constraint",
+      );
       expect(fixture.launches).toHaveLength(0);
       await expect(access(fixture.output)).rejects.toMatchObject({
         code: "ENOENT",
