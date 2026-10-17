@@ -98,6 +98,7 @@ import {
   parsePmPathOutput,
 } from "./AdbDeviceOutput.js";
 import { adbHostFileName } from "./AdbHostFileName.js";
+import { AdbUiRunner } from "./AdbUiRunner.js";
 import {
   AdbInputSnapshotFailure,
   snapshotAdbInput,
@@ -819,17 +820,19 @@ const reservePackageDestinations = async (
  *
  * Every operation composes fixed adb argument vectors: caller values occupy
  * positional arguments, escaped when adb forwards them to the device shell. The provider never
- * starts an emulator, installs platform tools, or drives the device UI; the
- * only device mutation is the caller-requested file push, which requires an
- * explicit overwrite choice and verifies its transfer digest.
+ * starts an emulator or installs platform tools. Explicit UI operations use
+ * the caller-started UI Automator runner; package/file mutations remain
+ * separately selected operations.
  */
 export class AdbProvider {
   private readonly environment: Readonly<Record<string, string | undefined>>;
+  readonly #ui: AdbUiRunner;
+  readonly #uiCleanup: AnalysisCleanupLease;
   readonly #createRuntimeRoot: (
     options?: PrivateRuntimeRootOptions,
   ) => Promise<AdbRuntimeRoot>;
   readonly #resources = new ArtifactResourceScope();
-  readonly #outputDirectoryRetryLeases = new WeakMap<
+  readonly #cleanupRetryLeases = new WeakMap<
     AnalysisError,
     readonly AnalysisCleanupLease[]
   >();
@@ -842,6 +845,8 @@ export class AdbProvider {
 
   constructor(options: AdbProviderOptions = {}) {
     this.environment = options.environment ?? process.env;
+    this.#ui = new AdbUiRunner(this.environment);
+    this.#uiCleanup = new AnalysisCleanupLease(() => this.#ui.close());
     this.#createRuntimeRoot =
       options.createRuntimeRoot ??
       ((rootOptions) => PrivateRuntimeRoot.create(rootOptions));
@@ -886,6 +891,7 @@ export class AdbProvider {
       // Directory errors may also depend on a retained digest descriptor.
       // Settle those owners before deciding whether the directory error resolved.
       for (const cleanup of [
+        () => this.#closeUi(),
         () => this.#resources.close(),
         () => this.#retryOutputDirectoryCleanup(),
       ]) {
@@ -895,7 +901,7 @@ export class AdbProvider {
           failures.push(cause);
           const leases =
             (cause instanceof AnalysisError
-              ? this.#outputDirectoryRetryLeases.get(cause)
+              ? this.#cleanupRetryLeases.get(cause)
               : undefined) ??
             (cause instanceof ArtifactResourceRetryFailure
               ? cause.cleanupLeases
@@ -935,6 +941,25 @@ export class AdbProvider {
     });
     this.#closePromise = closing;
     return this.#closePromise;
+  }
+
+  async #closeUi(): Promise<void> {
+    try {
+      await this.#uiCleanup.release();
+    } catch (cause) {
+      const error =
+        cause instanceof AnalysisError
+          ? cause
+          : new ProviderCleanupError(
+              ADB_PROVIDER_IDENTITY.id,
+              this.#ui.pendingResources,
+              { reason: describeAdbFailure(cause) },
+              { cause },
+            );
+      this.#uiCleanup.bindCleanupError(error);
+      this.#cleanupRetryLeases.set(error, [this.#uiCleanup]);
+      throw error;
+    }
   }
 
   #cleanupResources(cause: unknown, resource: string): readonly string[] {
@@ -1216,7 +1241,7 @@ export class AdbProvider {
       const leases = [...this.#pendingOutputDirectoryCleanup].map(
         ({ lease }) => lease,
       );
-      this.#outputDirectoryRetryLeases.set(error, leases);
+      this.#cleanupRetryLeases.set(error, leases);
       if (failures.length > 1) new AnalysisCleanupLeaseGroup(error, leases);
       throw error;
     }
@@ -1328,6 +1353,17 @@ export class AdbProvider {
         signal,
       );
     switch (operation) {
+      case "inspect_adb_ui":
+      case "find_adb_ui_elements":
+      case "wait_for_adb_ui":
+      case "perform_adb_ui_action":
+        return this.#ui.execute(
+          request,
+          selection.binary,
+          client,
+          provider,
+          signal,
+        );
       case "inspect_adb_client":
         return ok(
           createAnalysisExecution(

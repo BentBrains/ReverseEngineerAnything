@@ -99,6 +99,8 @@ export const runOwnedCommand = async (
   limits: OwnedCommandLimits & { readonly timeoutMs: number },
   options: {
     readonly signal?: AbortSignal | undefined;
+    /** Bounded caller-owned bytes/text delivered through piped stdin, never argv or diagnostics. */
+    readonly input?: string | Uint8Array;
     /** Synchronously accept unresolved cleanup ownership; execution still returns its original outcome. Must not throw. */
     readonly retainCleanup?: (
       owner: ProviderProcessSupervisor,
@@ -110,6 +112,8 @@ export const runOwnedCommand = async (
   } = {},
 ): Promise<ProviderProcessSnapshot> => {
   const callerSignal = options.signal ?? spawn.signal;
+  if (options.input !== undefined && spawn.stdin !== "pipe")
+    throw new TypeError("Owned command input requires piped stdin");
   if (callerSignal?.aborted)
     throw new OwnedCommandFailure(
       "cancelled",
@@ -127,6 +131,7 @@ export const runOwnedCommand = async (
       deadline,
       callerSignal,
       options.retainCleanup,
+      options.input,
     );
   } finally {
     deadline.dispose();
@@ -145,6 +150,7 @@ const collectOwnedCommand = async (
     owner: ProviderProcessSupervisor,
     result: Extract<ProviderProcessStopResult, { status: "incomplete" }>,
   ) => void,
+  input?: string | Uint8Array,
 ): Promise<ProviderProcessSnapshot> => {
   const signal = deadline.signal;
   let launched: SpawnedOwnedProviderProcess;
@@ -222,8 +228,29 @@ const collectOwnedCommand = async (
     processFailure ??= failed;
   });
   let failure: OwnedCommandFailure | undefined;
+  let inputPending = false;
+  let inputFailure: Error | undefined;
   try {
-    while (!(await supervisor.waitForOutputClose(10))) {
+    if (input !== undefined) {
+      const stream = launched.process.stdin;
+      if (stream === null || stream === undefined)
+        throw new Error("Owned process did not supply piped stdin");
+      inputPending = true;
+      const failed = (cause: Error) => {
+        inputFailure = cause;
+        inputPending = false;
+      };
+      stream.on("error", failed);
+      stream.once("close", () => {
+        stream.off("error", failed);
+        if (inputPending)
+          failed(new Error("Command stdin closed before write completion"));
+      });
+      stream.end(input, () => {
+        inputPending = false;
+      });
+    }
+    while (inputPending || !(await supervisor.waitForOutputClose(10))) {
       const interruption = deadline.interruption;
       if (interruption !== undefined)
         throw new OwnedCommandFailure(
@@ -247,6 +274,14 @@ const collectOwnedCommand = async (
           processError,
           collectionFailure: true,
         });
+      if (inputFailure !== undefined)
+        throw new OwnedCommandFailure(
+          "process",
+          "Command stdin write failed.",
+          null,
+          null,
+          { cause: inputFailure, collectionFailure: true },
+        );
       await waitForAbortableDelay(25, signal);
     }
     // Output has closed, but the sink may still be parsing what it buffered.
@@ -280,16 +315,25 @@ const collectOwnedCommand = async (
       snapshot.signal === null;
     if (
       processFailure !== undefined ||
+      inputFailure !== undefined ||
       ((snapshot.exitCode !== 0 || snapshot.signal !== null) &&
         !acceptedNonzeroExit)
     )
       throw new OwnedCommandFailure(
         "process",
         processFailure ??
+          (inputFailure === undefined
+            ? undefined
+            : "Command stdin write failed.") ??
           "Command failed; inspect its exit status and diagnostics.",
         snapshot,
         null,
-        { processError, collectionFailure: processFailure !== undefined },
+        {
+          processError,
+          collectionFailure:
+            processFailure !== undefined || inputFailure !== undefined,
+          ...(inputFailure === undefined ? {} : { cause: inputFailure }),
+        },
       );
     limits.observeCompleted?.(snapshot);
   } catch (cause: unknown) {
@@ -306,6 +350,7 @@ const collectOwnedCommand = async (
   }
   // A finished sink ignores this; an unfinished one is destroyed.
   abandoned.abort();
+  if (input !== undefined) launched.process.stdin?.destroy();
   const stopped = await supervisor.stop();
   const snapshot = supervisor.snapshot();
   const cancellation =

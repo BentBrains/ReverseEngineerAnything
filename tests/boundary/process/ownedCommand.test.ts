@@ -486,6 +486,67 @@ it("cancels a real acquired process and independently releases it", async () => 
   expect(() => process.kill(acquiredPid, 0)).toThrow();
 });
 
+it("streams complete stdin while draining backpressured stdout", async () => {
+  const input = "界\n".repeat(32 * 1024);
+  const result = await runOwnedCommand(
+    { ...command("process.stdin.pipe(process.stdout)"), stdin: "pipe" },
+    { timeoutMs: 5000, diagnosticBytes: Buffer.byteLength(input) + 1 },
+    { input },
+  );
+  expect(result.stdout.text).toBe(input);
+});
+
+it("reports an early stdin close without losing the child's diagnostics", async () => {
+  await expect(
+    runOwnedCommand(
+      {
+        ...command(
+          'process.stdin.destroy(); process.stdout.write("input refused"); setTimeout(() => process.exit(0), 25)',
+        ),
+        stdin: "pipe",
+      },
+      { timeoutMs: 5000, diagnosticBytes: 1024 },
+      { input: Buffer.alloc(2 * 1024 * 1024, 65) },
+    ),
+  ).rejects.toMatchObject({
+    reason: "process",
+    collectionFailure: true,
+    snapshot: { stdout: { text: "input refused" } },
+  });
+});
+
+it("cancels an input write blocked by a non-reading child and releases the process", async () => {
+  const controller = new AbortController();
+  let pid: number | undefined;
+  const result = runOwnedCommand(
+    {
+      ...command(
+        'process.stdout.write("ready\\n"); setInterval(() => undefined, 1000)',
+      ),
+      stdin: "pipe",
+    },
+    { timeoutMs: 5000, diagnosticBytes: 1024 },
+    {
+      input: Buffer.alloc(2 * 1024 * 1024, 65),
+      signal: controller.signal,
+      launcher: async (input) => {
+        const child = await spawnOwnedProviderProcess(input);
+        pid = child.process.pid;
+        await waitForProviderProcessReady(child.process);
+        setTimeout(() => controller.abort(), 25).unref();
+        return child;
+      },
+    },
+  );
+  await expect(result).rejects.toMatchObject({
+    reason: "cancelled",
+    cleanupFailure: null,
+  });
+  if (pid === undefined) throw new Error("Process was not acquired");
+  const acquired = pid;
+  expect(() => process.kill(acquired, 0)).toThrow();
+});
+
 it("returns a timeout for a running process after independent cleanup", async () => {
   await expect(
     runOwnedCommand(command("setInterval(() => undefined, 1000)"), {

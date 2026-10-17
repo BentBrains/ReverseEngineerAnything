@@ -189,6 +189,7 @@ export const readJsonObjectFile = (
         }
         return ok(undefined);
       } catch (cause: unknown) {
+        if (isJsonReadCancellation(cause, signal)) throw signal!.reason;
         const failure = jsonReadFailure(cause, operation, stats.size, path);
         if (failure !== undefined) return err(failure);
         throw cause;
@@ -299,6 +300,7 @@ export const readJsonInputFile = (
           ? ok(value)
           : err(invalidJson(operation, "JSON document is empty"));
       } catch (cause: unknown) {
+        if (isJsonReadCancellation(cause, signal)) throw signal!.reason;
         const failure = jsonReadFailure(cause, operation, stats.size, path);
         if (failure !== undefined) return err(failure);
         throw cause;
@@ -309,6 +311,35 @@ export const readJsonInputFile = (
       ...(resources === undefined ? {} : { resources }),
     },
   );
+
+/** Node can aggregate the same abort from the source and parser streams. */
+const isJsonReadCancellation = (
+  cause: unknown,
+  signal: AbortSignal | undefined,
+): boolean => {
+  if (signal?.aborted !== true) return false;
+  const pending = [cause];
+  const seen = new Set<unknown>();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    // Caller reasons are opaque, even when they are themselves aggregate errors.
+    if (current === signal.reason) continue;
+    if (
+      current instanceof Error &&
+      current.name === "AbortError" &&
+      current.cause === signal.reason
+    )
+      continue;
+    if (seen.has(current)) return false;
+    seen.add(current);
+    if (current instanceof AggregateError && current.errors.length > 0) {
+      pending.push(...current.errors);
+      continue;
+    }
+    return false;
+  }
+  return true;
+};
 
 const jsonReadFailure = (
   cause: unknown,

@@ -8,7 +8,7 @@ import {
   AnalysisInputError,
 } from "../domain/analysisErrorCore.js";
 import { createEvidence, type Evidence } from "../domain/evidence.js";
-import { jsonObjectSchema } from "../domain/jsonValue.js";
+import { jsonObjectSchema, type JsonValue } from "../domain/jsonValue.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type {
   AnalysisExecution,
@@ -45,6 +45,13 @@ export const executeProviderOperation = async <
   schema: z.ZodType<TRequest>,
   provider: ProviderOperationPort<TRequest>,
   confidence: "observed" | "derived",
+  projection?: {
+    readonly parameters?: (
+      request: TRequest,
+      execution: AnalysisExecution,
+    ) => Readonly<Record<string, JsonValue>>;
+    readonly authority?: (request: TRequest) => Evidence["authority"];
+  },
 ): Promise<Result<Evidence, AnalysisError>> => {
   if (options?.signal?.aborted)
     return err(
@@ -61,12 +68,17 @@ export const executeProviderOperation = async <
     execution.provider,
     {
       operation,
-      parameters: jsonObjectSchema.parse(request.data.input),
+      parameters:
+        projection?.parameters?.(request.data, execution) ??
+        jsonObjectSchema.parse(request.data.input),
       result: execution.result,
       rawResult: execution.rawResult,
       limitations: execution.limitations,
       locations: execution.locations,
       confidence,
+      ...(projection?.authority === undefined
+        ? {}
+        : { authority: projection.authority(request.data) }),
     },
   );
   return completeProviderEvidence(evidence, options?.signal);

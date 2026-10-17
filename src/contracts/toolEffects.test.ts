@@ -146,6 +146,7 @@ describe("tool effects", () => {
       "instrument_with_frida",
       "load_frida_script",
       "observe_native_calls",
+      "perform_adb_ui_action",
       "push_adb_file",
       "resume_frida_session",
       "rizin_debug_command",

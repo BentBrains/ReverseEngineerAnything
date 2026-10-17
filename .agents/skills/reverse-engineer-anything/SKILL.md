@@ -2,7 +2,7 @@
 name: reverse-engineer-anything
 description: Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA. Use shipped-artifact or requested runtime evidence to explain features, compare versions, decompile code, or guide a reconstruction. Skip REA for ordinary source-repository architecture analysis.
 metadata:
-  version: "42"
+  version: "43"
 ---
 
 # REA
@@ -95,6 +95,13 @@ explicit path or endpoint and do not need it.
 - Android APK code, classes, methods, or incoming references:
   `inspect_android_package`, then focused Android tools when advertised.
   Archive member inventory still uses the archive route above.
+- Android UI on a caller-selected device: `find_adb_ui_elements` for text,
+  resource IDs or clickable controls; `inspect_adb_ui` for the hierarchy.
+  Select a returned snapshot/element ID for `perform_adb_ui_action`, then verify
+  the outcome with its after-state or `wait_for_adb_ui`. Preserve duplicate
+  candidates, partial coverage and stale-element refusals. These tools require
+  the caller-started UI Automator 2.4 runner; its installation and lifetime are
+  operator-owned. See the [Android UI guide](https://github.com/morluto/rea/blob/main/docs/adb-ui-automation.md).
 - Managed PE/CLI assembly: `inspect_managed_artifact`.
 - Firmware image: `inspect_firmware_regions` when advertised. Use
   `extract_firmware` when extraction is requested, with a caller-selected new

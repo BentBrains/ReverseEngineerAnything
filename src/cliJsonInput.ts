@@ -4,6 +4,7 @@ import { readJsonInputFile } from "./application/JsonInputFile.js";
 import { NonRegularFileReadError } from "./filesystem/RegularFile.js";
 import {
   AnalysisAccessDeniedError,
+  AnalysisCancelledError,
   AnalysisInputError,
 } from "./domain/analysisErrorCore.js";
 import { projectAnalysisError } from "./domain/analysisErrorProjection.js";
@@ -14,14 +15,17 @@ import { safeParseJson } from "./domain/safeJson.js";
 export const parseCliJsonInput = async (
   value: string,
   operation: string,
+  signal?: AbortSignal,
 ): Promise<
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: JsonValue }
 > => {
+  if (signal?.aborted)
+    throw new AnalysisCancelledError(operation, { cause: signal.reason });
   const inline = safeParseJson(value);
   if (inline.ok) return { ok: true, value: inline.value };
   try {
-    const parsed = await readJsonInputFile(value, operation);
+    const parsed = await readJsonInputFile(value, operation, signal);
     return parsed.ok
       ? { ok: true, value: parsed.value }
       : {
@@ -37,6 +41,8 @@ export const parseCliJsonInput = async (
           },
         };
   } catch (cause: unknown) {
+    if (signal?.aborted && cause === signal.reason)
+      throw new AnalysisCancelledError(operation, { cause: signal.reason });
     const systemCode = accessDeniedSystemCode(cause);
     if (systemCode !== undefined)
       return jsonAccessDeniedError(value, operation, systemCode, cause);
