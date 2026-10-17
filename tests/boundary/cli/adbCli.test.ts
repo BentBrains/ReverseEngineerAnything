@@ -335,3 +335,130 @@ exit 0
     await expect(lstat(output)).rejects.toMatchObject({ code: "ENOENT" });
   },
 );
+
+it.skipIf(process.platform === "win32")(
+  "attributes pull file refusals to the device path and device state to the serial",
+  async () => {
+    const workspace = await createTestWorkspace("rea-adb-pull-attribute-");
+    onTestFinished(() => removeTestWorkspace(workspace.root));
+    const remote = "/data/local/tmp/rea-attribute-sample.bin";
+    const versionProbe =
+      'if [ "$1" = version ]; then\n' +
+      "  printf 'Android Debug Bridge version 1.0.41\\nVersion 34.0.5-cli\\nInstalled as %s\\n' \"$0\"\n" +
+      "  exit 0\n" +
+      "fi\n";
+    const refuse = async (name: string, refusal: string) => {
+      const adb = await workspace.write(
+        `refuse-${name}`,
+        `#!/bin/sh\nroot=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nprintf '%s\\n' "$*" >> "$root/calls-${name}"\n${versionProbe}if [ "$3" = pull ]; then\n  printf '%s' "${refusal}" >&2\n  exit 1\nfi\nexit 91\n`,
+      );
+      await chmod(adb, 0o755);
+      return adb;
+    };
+    const missingAdb = await refuse(
+      "missing",
+      `adb: error: failed to stat remote object '${remote}': No such file or directory`,
+    );
+    const permissionAdb = await refuse(
+      "permission",
+      `adb: error: failed to open '${remote}': Permission denied`,
+    );
+    const offlineAdb = await refuse("offline", "error: device offline");
+    const successAdb = await workspace.write(
+      "success-adb",
+      `#!/bin/sh\nroot=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nprintf '%s\\n' "$*" >> "$root/calls-success"\n${versionProbe}if [ "$3" = pull ]; then\n  printf 'attribute bytes\\n' > "$5"\n  exit 0\nfi\nexit 91\n`,
+    );
+    await chmod(successAdb, 0o755);
+
+    const pull = (adb: string, output: string) =>
+      serve(
+        [
+          "pull-adb-file",
+          "emulator-5554",
+          remote,
+          "--output-directory",
+          output,
+          "--json",
+        ],
+        { REA_ADB_PATH: adb },
+      );
+
+    const previousExitCode = process.exitCode;
+    const restorablePull = async (adb: string, output: string) => {
+      const result = await pull(adb, output);
+      const exitCode = process.exitCode;
+      process.exitCode = previousExitCode;
+      return { result, exitCode };
+    };
+
+    for (const [name, adb] of [
+      ["missing", missingAdb],
+      ["permission", permissionAdb],
+      ["offline", offlineAdb],
+    ] as const) {
+      const { result, exitCode } = await restorablePull(
+        adb,
+        workspace.path(`${name}-output`),
+      );
+      expect(exitCode).toBe(1);
+      const output = JSON.parse(result.stdout) as {
+        code: string;
+        message: string;
+        details: { operation: string; path: string; reason: string };
+      };
+      expect(output.code).toBe("unsupported_target");
+      expect(output.details.operation).toBe("pull_adb_file");
+      expect(output.details.reason).toEqual(
+        expect.stringContaining(name === "offline" ? "device offline" : remote),
+      );
+      expect(output.details.path).toBe(
+        name === "offline" ? "emulator-5554" : remote,
+      );
+      expect(output.message).toContain(
+        name === "offline" ? "at emulator-5554" : `at ${remote}`,
+      );
+      const calls = (await readFile(workspace.path(`calls-${name}`), "utf8"))
+        .split("\n")
+        .filter((line) => line !== "");
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toBe("version");
+      expect(calls[1]).toBe(
+        `-s emulator-5554 pull ${remote} ${workspace.path(`${name}-output/rea-attribute-sample.bin`)}`,
+      );
+    }
+
+    const { result: success, exitCode: successExitCode } = await restorablePull(
+      successAdb,
+      workspace.path("success-output"),
+    );
+    expect(successExitCode).toBe(previousExitCode);
+    const pulled = JSON.parse(success.stdout) as {
+      normalized_result: {
+        serial: string;
+        device_path: string;
+        local_path: string;
+        bytes: number;
+        sha256: string;
+      };
+    };
+    const content = "attribute bytes\n";
+    expect(pulled.normalized_result).toMatchObject({
+      serial: "emulator-5554",
+      device_path: remote,
+      bytes: Buffer.byteLength(content),
+      sha256: createHash("sha256").update(content).digest("hex"),
+    });
+    expect(await readFile(pulled.normalized_result.local_path, "utf8")).toBe(
+      content,
+    );
+    const successCalls = (
+      await readFile(workspace.path("calls-success"), "utf8")
+    )
+      .split("\n")
+      .filter((line) => line !== "");
+    expect(successCalls).toEqual([
+      "version",
+      `-s emulator-5554 pull ${remote} ${workspace.path("success-output/rea-attribute-sample.bin")}`,
+    ]);
+  },
+);

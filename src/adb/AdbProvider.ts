@@ -2305,6 +2305,7 @@ export class AdbProvider {
       adbArguments(input.serial, ["pull", input.device_path, localPath]),
       { timeoutMs: PULL_TIMEOUT_MS, maxOutputBytes: PULL_MAX_OUTPUT_BYTES },
       signal,
+      { fileTarget: input.device_path },
     );
     if (!pulled.ok) return pulled;
     try {

@@ -70,6 +70,15 @@ export interface AdbRunLimits {
   readonly maxOutputBytes: number;
 }
 
+/** Per-command target identities beyond the shared device target. */
+export interface AdbRunTargets {
+  /**
+   * Remote file operand named by path-specific refusals, such as a pull source
+   * that is missing or unreadable. Device-state refusals keep the device target.
+   */
+  readonly fileTarget?: string;
+}
+
 /** Run one bounded adb invocation and keep its exact failure shape. */
 export const runAdbCapture = async (
   operation: string,
@@ -78,6 +87,7 @@ export const runAdbCapture = async (
   arguments_: readonly string[],
   limits: AdbRunLimits,
   signal: AbortSignal | undefined,
+  targets: AdbRunTargets = {},
 ): Promise<Result<{ stdout: Buffer; stderr: Buffer }, AnalysisError>> => {
   if (signal?.aborted === true)
     return err(new AnalysisCancelledError(operation, { cause: signal.reason }));
@@ -138,9 +148,14 @@ export const runAdbCapture = async (
       )
     )
       return err(
-        new AnalysisUnsupportedTargetError(operation, targetPath, excerpt, {
-          cause,
-        }),
+        new AnalysisUnsupportedTargetError(
+          operation,
+          targets.fileTarget ?? targetPath,
+          excerpt,
+          {
+            cause,
+          },
+        ),
       );
     if (failure.killed)
       return err(
