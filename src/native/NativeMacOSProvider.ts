@@ -10,7 +10,10 @@ import {
   NATIVE_MACOS_PROVIDER_IDENTITY as IDENTITY,
   nativeMacOSCapabilities,
 } from "./NativeMacOSProviderMetadata.js";
-import { inspectAppleDispatchMetadata } from "./AppleDispatchMetadata.js";
+import {
+  inspectAppleDispatchMetadata,
+  nativeDispatchMetadataFailure,
+} from "./AppleDispatchMetadata.js";
 import {
   observeNativeUi,
   finishNativeUiObservation,
@@ -161,6 +164,7 @@ class NativeMacOSClient implements AnalysisClient {
   readonly #signatureResources = new ArtifactResourceScope();
   readonly #plistResources = new ArtifactResourceScope();
   readonly #callResources = new ArtifactResourceScope();
+  readonly #dispatchResources = new ArtifactResourceScope();
   #nativeUiTail: Promise<void> = Promise.resolve();
   #closed = false;
 
@@ -215,10 +219,13 @@ class NativeMacOSClient implements AnalysisClient {
           ),
         );
       try {
-        const result = await inspectAppleDispatchMetadata(
-          this.target,
-          input.data.max_records,
-          options?.signal,
+        const result = await this.#dispatchResources.run(() =>
+          inspectAppleDispatchMetadata(
+            this.target,
+            input.data.max_records,
+            this.#dispatchResources,
+            options?.signal,
+          ),
         );
         return ok(
           createAnalysisExecution(result, result.provider, {
@@ -229,26 +236,7 @@ class NativeMacOSClient implements AnalysisClient {
           }),
         );
       } catch (cause) {
-        if (cause instanceof AnalysisError) return err(cause);
-        const cancellation = regularFileCancellation(cause);
-        if (cancellation !== undefined)
-          return err(
-            new AnalysisCancelledError(operation, {
-              cause: cancellation.reason,
-            }),
-          );
-        return err(
-          options?.signal?.aborted
-            ? new AnalysisCancelledError(operation)
-            : new ProviderAdapterError(IDENTITY.id, operation, {
-                cause,
-                diagnostics: {
-                  target_path: this.target.path,
-                  reason:
-                    cause instanceof Error ? cause.message : String(cause),
-                },
-              }),
-        );
+        return err(nativeDispatchMetadataFailure(cause, this.target.path));
       }
     }
     if (!isNativeOperation(operation))
@@ -319,6 +307,10 @@ class NativeMacOSClient implements AnalysisClient {
       this.#callResources,
       "native-call-target",
     );
+    const dispatchCleanup = await closeNativeFileScope(
+      this.#dispatchResources,
+      "native-dispatch-metadata-target",
+    );
     const commandCleanup = await this.#retryNativeCommandCleanup();
     let result = await this.tracer.close();
     const cleanupErrors = [
@@ -329,6 +321,7 @@ class NativeMacOSClient implements AnalysisClient {
       ...(signatureCleanup === undefined ? [] : [signatureCleanup]),
       ...(plistCleanup === undefined ? [] : [plistCleanup]),
       ...(callCleanup === undefined ? [] : [callCleanup]),
+      ...(dispatchCleanup === undefined ? [] : [dispatchCleanup]),
     ];
     for (const cleanupError of cleanupErrors)
       result = result.ok
