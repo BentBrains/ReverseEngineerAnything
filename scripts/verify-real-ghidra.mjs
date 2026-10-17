@@ -34,6 +34,7 @@ import { completeVerifierRun, createVerifierRun } from "./lib/verifier-run.mjs";
 import { hasTypedSwitchEvidence } from "./verify-real-ghidra-switch-assertions.mjs";
 
 import {
+  verifyDecompilerRemovedBlock,
   verifyDenseDefaultReturn,
   verifyJumpTableDenseSwitch,
   verifyNativeTypeLayout,
@@ -147,14 +148,20 @@ try {
   await exec(compiler, [...jumpTableFlags, sourcePath, "-o", jumpTablePath]);
   const crossTargets = [];
   if (aarch64JumpTableOnly) {
+    // The host compiler's default target produces Mach-O only on an arm64
+    // macOS host; Linux arm64 hosts would otherwise emit ELF labeled Mach-O.
+    const aarch64ObjectFormats = [
+      "elf",
+      ...(expectedNativeTarget.format === "mach-o" &&
+      expectedNativeTarget.architecture === "arm64"
+        ? ["mach-o"]
+        : []),
+    ];
     const relativeSource = fileURLToPath(
       new URL("../tests/conformance/ghidra/relative-switch.S", import.meta.url),
     );
     for (const entrySize of [1, 2]) {
-      for (const format of [
-        "elf",
-        ...(expectedNativeTarget.architecture === "arm64" ? ["mach-o"] : []),
-      ]) {
+      for (const format of aarch64ObjectFormats) {
         const targetPath = join(
           fixtureRoot,
           `relative-${entrySize}-${format}.o`,
@@ -181,10 +188,7 @@ try {
       ),
     );
     for (const selectorBias of [0, 2, 10]) {
-      for (const format of [
-        "elf",
-        ...(expectedNativeTarget.architecture === "arm64" ? ["mach-o"] : []),
-      ]) {
+      for (const format of aarch64ObjectFormats) {
         const targetPath = join(
           fixtureRoot,
           `relative-signed-${selectorBias}-${format}.o`,
@@ -203,6 +207,27 @@ try {
           { format, architecture: "arm64" },
         ]);
       }
+    }
+    const removedBlockSource = fileURLToPath(
+      new URL(
+        "../tests/conformance/ghidra/decompiler-removed-block.S",
+        import.meta.url,
+      ),
+    );
+    for (const format of aarch64ObjectFormats) {
+      const targetPath = join(fixtureRoot, `removed-block-${format}.o`);
+      await exec(clang, [
+        ...(format === "elf" ? ["--target=aarch64-linux-gnu"] : []),
+        "-c",
+        removedBlockSource,
+        "-o",
+        targetPath,
+      ]);
+      crossTargets.push([
+        targetPath,
+        "removed-block",
+        { format, architecture: "arm64" },
+      ]);
     }
 
     await exec(clang, [
@@ -302,7 +327,11 @@ try {
   const crossResults = [];
   for (const [targetPath, variant, expectedTarget] of crossTargets) {
     const result = await verifyTarget(targetPath, variant, expectedTarget);
-    if (variant !== "aarch64-jump-table" && !variant.startsWith("relative-"))
+    if (
+      variant !== "aarch64-jump-table" &&
+      variant !== "removed-block" &&
+      !variant.startsWith("relative-")
+    )
       assertCrossFixture(result);
     crossResults.push(result);
   }
@@ -331,6 +360,9 @@ try {
       ? (crossResults[0]?.native_api_cli ?? null)
       : jumpTable.native_api_cli,
     native_value_e2e: debug.native_values,
+    decompiler_removed_blocks: crossResults
+      .filter(({ variant }) => variant === "removed-block")
+      .map(({ target, probes }) => ({ format: target.format, ...probes })),
     custom_target: custom === null ? null : summary(custom),
     cleanup: "complete",
   };
@@ -554,30 +586,33 @@ async function verifyTarget(targetPath, variant, expectedTarget = null) {
             client,
           })
         : null;
-    const probes = variant.startsWith("relative-signed-")
-      ? await verifyRelativeSignedSwitch(
-          client,
-          Number(variant.split("-").at(-1)),
-        )
-      : variant.startsWith("relative-")
-        ? await verifyRelativeSwitch(
-            client,
-            procedures,
-            Number(variant.slice(-1)),
-          )
-        : variant === "type-layout"
-          ? await verifyNativeTypeLayout(client, names)
-          : variant === "jump-table"
-            ? await verifyJumpTableDenseSwitch(client, procedures)
-            : variant === "custom" || variant === "aarch64-jump-table"
-              ? null
-              : await verifyInventoryOperations({
-                  client,
-                  variant,
-                  procedures,
-                  names,
-                  strings,
-                });
+    const probes =
+      variant === "removed-block"
+        ? await verifyDecompilerRemovedBlock(client, expectedTarget.format)
+        : variant.startsWith("relative-signed-")
+          ? await verifyRelativeSignedSwitch(
+              client,
+              Number(variant.split("-").at(-1)),
+            )
+          : variant.startsWith("relative-")
+            ? await verifyRelativeSwitch(
+                client,
+                procedures,
+                Number(variant.slice(-1)),
+              )
+            : variant === "type-layout"
+              ? await verifyNativeTypeLayout(client, names)
+              : variant === "jump-table"
+                ? await verifyJumpTableDenseSwitch(client, procedures)
+                : variant === "custom" || variant === "aarch64-jump-table"
+                  ? null
+                  : await verifyInventoryOperations({
+                      client,
+                      variant,
+                      procedures,
+                      names,
+                      strings,
+                    });
     const nativeValues =
       variant === "debug"
         ? await verifyNativeValueTrace(client, procedures, parsedTarget.value)

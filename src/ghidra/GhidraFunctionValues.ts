@@ -306,6 +306,16 @@ const ghidraFunctionDossier = functionDossierSchema
         message:
           "Ghidra dossier must record Swift literals and their omissions together",
       });
+    const removed = value.decompiler_completeness?.removed_blocks ?? [];
+    if (
+      new Set(removed.map(({ start }) => start)).size !== removed.length ||
+      removed.some(({ end, assembly }) => end === null && assembly.length > 0)
+    )
+      context.addIssue({
+        code: "custom",
+        message:
+          "Ghidra removed-block records must be unique and carry assembly only for a mapped range",
+      });
     const addresses = [
       value.procedure.address,
       ...value.comments.map(({ address }) => address),
@@ -335,6 +345,9 @@ const ghidraFunctionDossier = functionDossierSchema
         end,
         ...successors,
       ]),
+      ...(value.decompiler_completeness?.removed_blocks ?? []).flatMap(
+        ({ start, end }) => (end === null ? [start] : [start, end]),
+      ),
     ];
     if (
       addresses.some(

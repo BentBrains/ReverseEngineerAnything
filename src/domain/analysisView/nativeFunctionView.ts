@@ -81,6 +81,7 @@ const nativeRows = (
     referenced_names: dossier.referenced_names,
     swift_string_literals: dossier.swift_string_literals,
     swift_string_literal_omissions: dossier.swift_string_literal_omissions,
+    decompiler_removed_blocks: dossier.decompiler_completeness?.removed_blocks,
     value_flow_operations: flow?.operations,
     value_flow_def_use: flow?.def_use,
     value_flow_effects: flow?.effects,
@@ -172,6 +173,28 @@ export const projectNativeFunctionView = (
   }
   if (view.facet === "pseudocode") {
     const page = analysisTextPage(dossier.pseudocode, view.offset, view.limit);
+    const completeness = dossier.decompiler_completeness;
+    const removed = completeness?.removed_blocks ?? [];
+    const unmapped = completeness?.unmapped_warnings ?? [];
+    common.unknowns = uniqueSorted([
+      ...common.unknowns,
+      // Absent means the provider did not report removals, not that none happened.
+      ...(completeness === undefined
+        ? [
+            "decompiler_completeness was not recorded; blocks the decompiler may have removed from this pseudocode are unknown",
+          ]
+        : []),
+      ...(removed.length > 0
+        ? [
+            `pseudocode omits ${String(removed.length)} block(s) the decompiler removed as unreachable; see decompiler_removed_blocks`,
+          ]
+        : []),
+      ...(unmapped.length > 0
+        ? [
+            `pseudocode omits ${String(unmapped.length)} further removed block(s) whose addresses could not be mapped; the analyze_function dossier lists them in decompiler_completeness.unmapped_warnings`,
+          ]
+        : []),
+    ]);
     return page.ok
       ? ok({ kind: "native", view, ...page.value, ...common })
       : page;

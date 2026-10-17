@@ -547,7 +547,9 @@ before any comment or name is changed.
 - `npm run verify:ghidra`: host-native debug/stripped targets, native type layout,
   instruction/call facts, value dependencies and process/project cleanup.
 - `npm run verify:ghidra:aarch64-jump-table`: optimized ELF and byte/halfword
-  relative tables, plus ARM64 Mach-O on an ARM64 macOS host.
+  relative tables, plus ARM64 Mach-O on an ARM64 macOS host. It also checks
+  that a block the decompiler removes as unreachable is reported in
+  `decompiler_completeness` with its range and instructions.
 - `npm run verify:apple-dispatch`: source-built Objective-C protocols, classes,
   properties and categories, and Swift conformances and vtables. Each is linked
   with legacy `LC_DYLD_INFO` and with chained fixups (and as arm64e on Apple

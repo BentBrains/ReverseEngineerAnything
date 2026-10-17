@@ -262,6 +262,66 @@ it("pages every retained dossier collection and the native API record", () => {
   });
 });
 
+it("flags pseudocode that omits decompiler-removed blocks", () => {
+  const original = functionDossierSchema.parse(ghidraFunctionDossier());
+  const removed = {
+    start: "0x401010",
+    end: "0x401018",
+    reason: "unreachable",
+    assembly: ["0x401010: mov w0, #0x77", "0x401014: ret"],
+  };
+  const view = (
+    facet: "pseudocode" | "decompiler_removed_blocks",
+    result: unknown,
+  ) => {
+    const projected = projectAnalysisView(nativeParent(result), {
+      kind: "native",
+      facet,
+      offset: 0,
+      limit: 64,
+    });
+    if (!projected.ok) throw projected.error;
+    return projected.value;
+  };
+  const withRemoval = {
+    ...original,
+    decompiler_completeness: {
+      removed_blocks: [removed],
+      unmapped_warnings: ["overlay,0x10"],
+    },
+  };
+  expect(view("pseudocode", withRemoval).unknowns).toEqual(
+    expect.arrayContaining([
+      "pseudocode omits 1 block(s) the decompiler removed as unreachable; see decompiler_removed_blocks",
+      "pseudocode omits 1 further removed block(s) whose addresses could not be mapped; the analyze_function dossier lists them in decompiler_completeness.unmapped_warnings",
+    ]),
+  );
+  expect(view("decompiler_removed_blocks", withRemoval)).toMatchObject({
+    item: [removed],
+    coverage: { total: 1, exhausted: true },
+  });
+  const inspected = {
+    ...original,
+    decompiler_completeness: { removed_blocks: [], unmapped_warnings: [] },
+  };
+  expect(
+    view("pseudocode", inspected).unknowns.some((entry) =>
+      entry.startsWith("pseudocode omits"),
+    ),
+  ).toBe(false);
+  expect(view("decompiler_removed_blocks", inspected)).toMatchObject({
+    item: [],
+    coverage: { total: 0 },
+  });
+  expect(view("decompiler_removed_blocks", original)).toMatchObject({
+    item: { available: false, reason: "not recorded" },
+  });
+  const notRecorded =
+    "decompiler_completeness was not recorded; blocks the decompiler may have removed from this pseudocode are unknown";
+  expect(view("pseudocode", original).unknowns).toContain(notRecorded);
+  expect(view("pseudocode", inspected).unknowns).not.toContain(notRecorded);
+});
+
 it("reports the malformed native dossier field", () => {
   const result = projectAnalysisView(
     nativeParent({

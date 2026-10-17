@@ -40,6 +40,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -1547,6 +1548,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 : function.getBody().isEmpty() ? "Ghidra has no function body to decompile."
                 : "Ghidra completed decompilation without returning pseudocode."
         ));
+        RemovedBlocks removedBlocks = pseudocode == null ? null : decompilerRemovedBlocks(function, pseudocode);
         if (pseudocode == null) {
             pseudocode = "";
         }
@@ -1595,6 +1597,16 @@ public final class ReaGhidraBridge extends HeadlessScript {
             nativeApiBoundary(function, decompilation)
         );
         result.add("native_value_flow", nativeValueFlow(decompilation));
+        if (removedBlocks != null) {
+            JsonObject completeness = new JsonObject();
+            completeness.add("removed_blocks", removedBlocks.blocks());
+            JsonArray unmappedWarnings = new JsonArray();
+            for (String warning : removedBlocks.unmapped()) {
+                unmappedWarnings.add(warning);
+            }
+            completeness.add("unmapped_warnings", unmappedWarnings);
+            result.add("decompiler_completeness", completeness);
+        }
         // Successful full queries distinguish collected empty sets from missing facts.
         // Availability does not claim that Ghidra resolved every runtime relationship.
         for (String facet : List.of("comments", "callers", "callees", "references", "strings_names", "cfg")) {
@@ -1640,6 +1652,21 @@ public final class ReaGhidraBridge extends HeadlessScript {
         if (decompilation != null && decompilation.getErrorMessage() != null &&
             !decompilation.getErrorMessage().isBlank()) {
             limitations.add("Ghidra decompiler diagnostic: " + decompilation.getErrorMessage());
+        }
+        if (removedBlocks != null && removedBlocks.blocks().size() > 0) {
+            limitations.add(
+                "Ghidra's decompiler removed " + removedBlocks.blocks().size() +
+                " block(s) it judged unreachable, so the pseudocode omits their code; " +
+                "decompiler_completeness.removed_blocks lists each range with its instructions."
+            );
+        }
+        if (removedBlocks != null && !removedBlocks.unmapped().isEmpty()) {
+            limitations.add(
+                "Ghidra reported " + removedBlocks.unmapped().size() +
+                " removed block(s) at addresses REA could not map into this function, so the pseudocode " +
+                "omits code that decompiler_completeness.removed_blocks cannot locate; " +
+                "decompiler_completeness.unmapped_warnings lists them."
+            );
         }
         result.add("limitations", limitations);
         monitor.checkCancelled();
@@ -3321,6 +3348,90 @@ public final class ReaGhidraBridge extends HeadlessScript {
             );
         }
         return results;
+    }
+
+    // Funcdata::removeUnreachableBlocks emits one header warning per removed block,
+    // naming the block's first address as "<space>,<AddrSpace::printRaw offset>".
+    // PrintC renders header warnings as whole comment lines before the body's "{".
+    private static final Pattern DECOMPILER_REMOVED_BLOCK = Pattern.compile(
+        "^[ \\t]*/\\* WARNING: Removing unreachable block \\(([^,()\\s]+),0x([0-9A-Fa-f]+)(?:\\+([0-9]+))?\\) \\*/[ \\t]*\\r?$",
+        Pattern.MULTILINE
+    );
+    private static final Pattern DECOMPILED_BODY_OPEN = Pattern.compile("^\\{[ \\t]*\\r?$", Pattern.MULTILINE);
+
+    private record RemovedBlocks(JsonArray blocks, List<String> unmapped) {}
+
+    /** Header text before the function body, where string literals cannot appear. */
+    private static String decompiledHeader(String pseudocode) {
+        Matcher body = DECOMPILED_BODY_OPEN.matcher(pseudocode);
+        return body.find() ? pseudocode.substring(0, body.start()) : pseudocode;
+    }
+
+    private RemovedBlocks decompilerRemovedBlocks(Function function, String pseudocode) throws Exception {
+        BasicBlockModel model = new BasicBlockModel(currentProgram, false);
+        TreeMap<Address, JsonObject> removed = new TreeMap<>();
+        List<String> unmapped = new ArrayList<>();
+        Matcher matcher = DECOMPILER_REMOVED_BLOCK.matcher(decompiledHeader(pseudocode));
+        while (matcher.find()) {
+            monitor.checkCancelled();
+            Address start = decompilerWarningAddress(
+                matcher.group(1), matcher.group(2), matcher.group(3));
+            if (start == null || !function.getBody().contains(start)) {
+                // Keep the word-offset cut so distinct sub-word warnings stay distinct.
+                String warning = matcher.group(1) + ",0x" + matcher.group(2) +
+                    (matcher.group(3) == null ? "" : "+" + matcher.group(3));
+                if (!unmapped.contains(warning)) unmapped.add(warning);
+                continue;
+            }
+            if (removed.containsKey(start)) {
+                continue;
+            }
+            JsonObject item = new JsonObject();
+            item.addProperty("start", canonicalAddress(start));
+            item.addProperty("reason", "unreachable");
+            CodeBlock block = model.getFirstCodeBlockContaining(start, monitor);
+            if (block == null) {
+                item.add("end", JsonNull.INSTANCE);
+                item.add("assembly", new JsonArray());
+            } else {
+                // Ghidra names only the start; the listing block containing it bounds the range.
+                Address max = block.getMaxAddress();
+                item.addProperty("end", exclusiveAddress(max));
+                List<Instruction> instructions = new ArrayList<>();
+                InstructionIterator iterator = currentProgram.getListing()
+                    .getInstructions(new AddressSet(start, max), true);
+                while (iterator.hasNext()) {
+                    monitor.checkCancelled();
+                    instructions.add(iterator.next());
+                }
+                item.add("assembly", GSON.toJsonTree(renderAssemblyLines(instructions))
+                    .getAsJsonArray());
+            }
+            removed.put(start, item);
+        }
+        JsonArray blocks = new JsonArray();
+        for (JsonObject item : removed.values()) {
+            blocks.add(item);
+        }
+        return new RemovedBlocks(blocks, unmapped);
+    }
+
+    private Address decompilerWarningAddress(String spaceName, String words, String cut) {
+        AddressSpace space = currentProgram.getAddressFactory().getAddressSpace(spaceName);
+        if (space == null) {
+            return null;
+        }
+        try {
+            BigInteger offset = new BigInteger(words, 16)
+                .multiply(BigInteger.valueOf(space.getAddressableUnitSize()))
+                .add(cut == null ? BigInteger.ZERO : new BigInteger(cut));
+            if (offset.bitLength() > 64) {
+                return null;
+            }
+            return space.getAddress(offset.longValue());
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private static String decompiledText(DecompileResults results) {

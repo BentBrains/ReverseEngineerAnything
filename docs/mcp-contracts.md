@@ -50,6 +50,23 @@ Supported keys are `pseudocode`, `assembly`, `comments`, `callers`, `callees`,
 `references`, `strings_names`, and `cfg`. Availability describes whether that
 facet was observed, not whether its collection contains any entries.
 
+Ghidra dossiers with pseudocode also carry
+`normalized_result.decompiler_completeness.removed_blocks`. Each entry is a
+block the decompiler removed as unreachable, so its code is missing from the
+pseudocode even though the listing still disassembles it. Entries give the
+`start` from Ghidra's `Removing unreachable block` warning, the exclusive `end`
+of the listing basic block that contains it (or `null` when the listing has no
+block there), `reason: "unreachable"`, and the block's `assembly`. Only
+whole-line header warnings before the function body count, and a warning whose
+address cannot be mapped into the analyzed function is kept as
+`"<space>,<offset>"` in `unmapped_warnings` instead of being dropped. Empty
+arrays mean the decompiler reported no removals; an absent field means the
+provider produced no pseudocode or does not report removals. Ghidra also adds a
+limitation when blocks were removed. Native `pseudocode` views report counts of
+both kinds in `unknowns`, and an unknown when the dossier has no
+`decompiler_completeness` record. The `decompiler_removed_blocks` native view
+pages the mapped entries.
+
 `compare_functions` keeps a dimension `unknown` with null counts when either
 side declares a required facet unavailable. An empty legacy facet without a
 coverage declaration is also unknown. A producer that actually observed an

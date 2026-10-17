@@ -64,6 +64,84 @@ describe("Ghidra unresolved call locations", () => {
   });
 });
 
+describe("Ghidra decompiler removed blocks", () => {
+  const removedBlock = {
+    start: "0x401010",
+    end: "0x401018",
+    reason: "unreachable",
+    assembly: ["0x401010: mov w0, #0x77", "0x401014: ret"],
+  };
+  const parseRemoved = (decompilerCompleteness: JsonValue) =>
+    parseGhidraFunctionResult("analyze_function", {
+      value: {
+        ...functionDossierSchema.parse(ghidraFunctionDossier()),
+        decompiler_completeness: decompilerCompleteness,
+      },
+      limitations: [],
+    });
+  const completeness = (
+    removedBlocks: JsonValue[],
+    unmappedWarnings: string[] = [],
+  ) => ({ removed_blocks: removedBlocks, unmapped_warnings: unmappedWarnings });
+
+  it("keeps each removed block's range and instructions apart from the pseudocode", () => {
+    const observed = completeness(
+      [
+        removedBlock,
+        { start: "0x401020", end: null, reason: "unreachable", assembly: [] },
+      ],
+      ["overlay,0x10"],
+    );
+    expect(parseRemoved(observed)).toMatchObject({
+      ok: true,
+      value: { value: { decompiler_completeness: observed } },
+    });
+  });
+
+  it("distinguishes an inspected decompilation with no removals from an absent record", () => {
+    expect(parseRemoved(completeness([]))).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          decompiler_completeness: {
+            removed_blocks: [],
+            unmapped_warnings: [],
+          },
+        },
+      },
+    });
+    const parsed = parseFunctionValueFixture(
+      "analyze_function",
+      ghidraFunctionDossier(),
+    );
+    if (!parsed.ok) throw parsed.error;
+    expect(parsed.value).not.toHaveProperty("decompiler_completeness");
+  });
+
+  it.each([
+    ["a non-canonical start", { ...removedBlock, start: "0x401A10" }],
+    ["a non-canonical end", { ...removedBlock, end: "401018" }],
+    ["an unknown reason", { ...removedBlock, reason: "truncated" }],
+    ["assembly without a mapped range", { ...removedBlock, end: null }],
+    ["an unexpected field", { ...removedBlock, warning: "raw text" }],
+  ])("rejects %s", (_label, block) => {
+    expect(parseRemoved(completeness([block]))).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisOutputError" },
+    });
+  });
+
+  it("rejects duplicate starts and a record without unmapped warnings", () => {
+    expect(
+      parseRemoved(completeness([removedBlock, removedBlock])),
+    ).toMatchObject({ ok: false, error: { _tag: "AnalysisOutputError" } });
+    expect(parseRemoved({ removed_blocks: [] })).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisOutputError" },
+    });
+  });
+});
+
 describe("Ghidra function-analysis result values", () => {
   it("preserves unresolved Swift jump omissions", () => {
     const dossier = {
