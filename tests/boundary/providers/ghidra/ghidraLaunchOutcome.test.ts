@@ -1,5 +1,7 @@
 import { join } from "node:path";
-import { expect, it, vi } from "vitest";
+import { tmpdir } from "node:os";
+import { createGhidraTestRuntime } from "../../../fixtures/ghidraRuntime.js";
+import { expect, it, onTestFinished, vi } from "vitest";
 import { AnalysisCancelledError } from "../../../../src/domain/analysisErrorCore.js";
 import { ProviderCleanupError } from "../../../../src/domain/providerCleanupError.js";
 import {
@@ -105,7 +107,9 @@ it("does not adopt a caller error's cleanup resources at initial cancellation", 
 });
 
 it("wraps an opaque typed caller reason at the real spawn preparation checkpoint", async () => {
-  const root = await createTestTempDirectory("rea-ghidra-preparation-cancel-");
+  const runtime = await createGhidraTestRuntime(tmpdir());
+  onTestFinished(() => runtime.close());
+  const root = runtime.path;
   const controller = new AbortController();
   const reason = new ProviderCleanupError("foreign", ["foreign-resource"], {
     reason: "caller-owned",
