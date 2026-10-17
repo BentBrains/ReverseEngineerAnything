@@ -73,7 +73,8 @@ export const decodeAppleDispatchMetadata = (
     if (end === bytes.length || end - start >= 4096)
       throw new RangeError("Unterminated or oversized metadata string");
     offset(address, end - start + 1);
-    return new TextDecoder("utf-8", { fatal: true }).decode(
+    // A metadata C string owns every code point, including an initial U+FEFF.
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
       bytes.subarray(start, end),
     );
   };
