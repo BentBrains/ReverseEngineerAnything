@@ -34,6 +34,7 @@ const stateFor = (scripts: CaptureState["scripts"]): CaptureState => ({
   metadataBytes: 0,
   scriptsObserved: scripts.length,
   invalidScripts: 0,
+  invalidContexts: 0,
   truncated: false,
   truncationReasons: new Set(),
 });

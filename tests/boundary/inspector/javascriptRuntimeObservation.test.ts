@@ -205,6 +205,65 @@ describe("Inspector execution-context lifecycle metadata", () => {
       await fake.close();
     }
   });
+
+  test.each([
+    ["malformed", "2", "1"],
+    ["valid", 2, 1],
+  ] as const)(
+    "accounts for %s context IDs in lifecycle events",
+    async (mode, createdId, destroyedId) => {
+      const fixture = await runtimeFixture();
+      const fake = await startFakeV8Inspector({
+        targetUrl: pathToFileURL(fixture.entry).href,
+        runtimeEvents: [
+          {
+            method: "Runtime.executionContextCreated",
+            params: { context: { id: 1, name: "main", origin: "" } },
+          },
+          {
+            method: "Runtime.executionContextCreated",
+            params: { context: { id: createdId, name: "worker", origin: "" } },
+          },
+          {
+            method: "Runtime.executionContextDestroyed",
+            params: { executionContextId: destroyedId },
+          },
+        ],
+        scriptEvents: [],
+      });
+      try {
+        const result = await new V8InspectorProvider().observe(
+          observeInput(fake.endpoint, fake.targetId, "node"),
+        );
+        if (!result.ok) throw result.error;
+        const invalidContextUnknowns = result.value.unknowns.filter((text) =>
+          text.includes("malformed execution-context ID"),
+        );
+        expect(result.value.capture).toMatchObject({
+          events_observed: 3,
+          events_retained: 3,
+          events_dropped: 0,
+          truncated: false,
+        });
+        if (mode === "malformed") {
+          expect(result.value.execution_contexts).toEqual([
+            { context_key: "1", state: "created", name: "main", origin: "" },
+          ]);
+          expect(invalidContextUnknowns).toEqual([
+            "2 execution-context lifecycle events with a missing or malformed execution-context ID were excluded; the affected contexts' lifecycle state is unknown.",
+          ]);
+          return;
+        }
+        expect(result.value.execution_contexts).toEqual([
+          { context_key: "1", state: "destroyed", name: "main", origin: "" },
+          { context_key: "2", state: "created", name: "worker", origin: "" },
+        ]);
+        expect(invalidContextUnknowns).toEqual([]);
+      } finally {
+        await fake.close();
+      }
+    },
+  );
 });
 
 test("rejects unknown runtime observation fields", () => {
