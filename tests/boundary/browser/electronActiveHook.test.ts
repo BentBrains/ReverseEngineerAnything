@@ -17,6 +17,9 @@ app.isReady = () => true;
 app.relaunch = () => undefined;
 app.setAsDefaultProtocolClient = () => true;
 app.setLoginItemSettings = () => undefined;
+app.moveToApplicationsFolder = () => {
+  throw new Error("moveToApplicationsFolder must stay blocked during capture");
+};
 const ipcMain = new EventEmitter();
 ipcMain.handlers = new Map();
 ipcMain.handle = (channel, listener) => ipcMain.handlers.set(channel, listener);
@@ -192,7 +195,11 @@ it("retains active hook evidence within its event-retention budget", async () =>
       expect.objectContaining({ kind: "window-lifecycle", event: "created" }),
       expect.objectContaining({ kind: "preload", event: "configured" }),
       expect.objectContaining({ kind: "shell-attempt", phase: "blocked" }),
-      expect.objectContaining({ kind: "updater", phase: "blocked" }),
+      expect.objectContaining({
+        kind: "updater",
+        event: "relaunch",
+        phase: "blocked",
+      }),
       expect.objectContaining({ kind: "native-addon" }),
       expect.objectContaining({ kind: "popup-attempt", phase: "blocked" }),
     ]),
@@ -276,6 +283,56 @@ process.stdout.write(JSON.stringify({
   ]);
   expect(JSON.stringify(result.snapshot)).not.toContain("secret-folder");
   expect(JSON.stringify(result.snapshot)).not.toContain("payload.exe");
+  electronActiveTimelineEventSchema.array().parse(result.snapshot.events);
+});
+
+it("blocks app.moveToApplicationsFolder without relocating the runtime", async () => {
+  const root = await createTestTempDirectory(
+    "rea-electron-hook-move-to-applications-",
+  );
+  temporary.push(root);
+  await writeElectronFixture(root);
+  const script = join(root, "move.cjs");
+  await writeFile(
+    script,
+    `const electron = require("electron");
+const moved = electron.app.moveToApplicationsFolder({
+  conflictHandler: () => {
+    throw new Error("conflictHandler must not run");
+  },
+});
+electron.app.relaunch();
+const snapshot = globalThis.__reaElectronActiveSnapshot();
+process.stdout.write(JSON.stringify({ moved, snapshot }) + "\\n");
+`,
+  );
+  const execution = await runNode(script, root);
+  expect(execution.code, execution.stderr).toBe(0);
+  const result = JSON.parse(execution.stdout.trim()) as {
+    readonly moved: boolean;
+    readonly snapshot: {
+      readonly hook_error: boolean;
+      readonly events: readonly Record<string, unknown>[];
+    };
+  };
+  expect(result.moved).toBe(false);
+  expect(result.snapshot.hook_error).toBe(false);
+  expect(result.snapshot.events).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        kind: "app-lifecycle",
+        event: "moveToApplicationsFolder",
+        phase: "blocked",
+        argument_shapes: ["object"],
+        error: true,
+      }),
+      expect.objectContaining({
+        kind: "updater",
+        event: "relaunch",
+        phase: "blocked",
+      }),
+    ]),
+  );
   electronActiveTimelineEventSchema.array().parse(result.snapshot.events);
 });
 
