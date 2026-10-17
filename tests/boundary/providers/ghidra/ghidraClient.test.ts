@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
-import { access, chmod, mkdir, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { PassThrough } from "node:stream";
 
@@ -39,6 +39,7 @@ import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js
 import {
   GhidraFixtureLauncher as FixtureLauncher,
   ghidraFixturePath as fixturePath,
+  ghidraFixtureHost,
 } from "./ghidraClient.fixture.js";
 
 const PROFILE_DIGEST = "a".repeat(64);
@@ -46,8 +47,7 @@ const PROVIDER_VERSION = "12.1.4";
 const TARGET_SHA256 = createHash("sha256")
   .update(readFileSync(fixturePath))
   .digest("hex");
-const HOST_TRANSPORT: GhidraTransportKind =
-  process.platform === "win32" ? "authenticated-loopback-tcp" : "unix-socket";
+const HOST_TRANSPORT: GhidraTransportKind = ghidraFixtureHost.transport;
 
 const preExitedProcessLauncher = (options: {
   readonly output: string;
@@ -156,6 +156,62 @@ describe("GhidraClient ready-only dispatch", () => {
     expect(launcher.processes).toHaveLength(1);
   });
 });
+
+it.skipIf(process.platform !== "win32")(
+  "waits for endpoint publication before exposing the fixture process",
+  async () => {
+    const fixture = new FixtureLauncher("gated_endpoint");
+    let launchReturned = false;
+    const client = clientFor({
+      async launch(session, options) {
+        const result = await fixture.launch(session, options);
+        launchReturned = true;
+        return result;
+      },
+    });
+    const started = client.start();
+    const child = await fixture.endpointOpen;
+    try {
+      expect(await readFile(fixture.endpointPaths[0] ?? "", "utf8")).toBe("");
+      expect(launchReturned).toBe(false);
+      child.send("publish-endpoint");
+      await expect(started).resolves.toMatchObject({ ok: true });
+      expect(launchReturned).toBe(true);
+      await expect(client.callTool("list_strings", {})).resolves.toMatchObject({
+        ok: true,
+      });
+    } finally {
+      if (child.connected) child.send("publish-endpoint");
+      await started;
+      await client.close();
+    }
+    await expect(waitForChildExit(child, 5_000)).resolves.toBe(true);
+    await expect(access(fixture.runtimeRoots[0] ?? "")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  },
+);
+
+it.skipIf(process.platform !== "win32")(
+  "retains the fixture child for cleanup when cancelled before publication",
+  async () => {
+    const fixture = new FixtureLauncher("gated_endpoint");
+    const client = clientFor(fixture);
+    const controller = new AbortController();
+    const started = client.start(controller.signal);
+    const child = await fixture.endpointOpen;
+    controller.abort();
+    await expect(started).resolves.toMatchObject({
+      ok: false,
+      error: { kind: "cancelled" },
+    });
+    await expect(waitForChildExit(child, 5_000)).resolves.toBe(true);
+    await expect(access(fixture.runtimeRoots[0] ?? "")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(client.close()).resolves.toMatchObject({ ok: true });
+  },
+);
 
 it("reports unknown startup work and stops notifications when cancellation releases the process", async () => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });

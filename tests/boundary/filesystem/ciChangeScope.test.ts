@@ -1223,6 +1223,27 @@ const stepRuns = z.object({
   ),
 });
 
+it.each([
+  "tests/fixtures/fakeGhidra.mjs",
+  "tests/boundary/providers/ghidra/ghidraClient.fixture.ts",
+  "tests/boundary/providers/ghidra/ghidraClient.test.ts",
+  "tests/boundary/mcp/ghidraStartupCancellationMcp.test.ts",
+  "tests/boundary/mcp/ghidraInventoryMcp.test.ts",
+  "tests/boundary/providers/startupCloseWaiters.test.ts",
+  "tests/boundary/filesystem/ghidraExecutableHeader.test.ts",
+  "tests/boundary/filesystem/ghidraInstallationProperties.test.ts",
+  "tests/boundary/providers/ghidra/ghidraLaunchOutcome.test.ts",
+])(
+  "selects the Windows package lane for Ghidra host fixture %s",
+  async (path) => {
+    const { directory, base } = await fixture();
+    const head = await change(directory, [path]);
+    const selected = await classify(directory, base, head);
+    expect(selected.package).toBe(true);
+    expect(selected.runtime).toBe(true);
+  },
+);
+
 it("owns every explicit native-host test path with the lane that runs it", async () => {
   const { SCOPES } = await loadScopes();
   const ci = stepRuns.parse(await workflowFile("ci.yml"));

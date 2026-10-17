@@ -295,8 +295,12 @@ it.each(["replace", "grow", "shrink", "disappear"] as const)(
       vi.spyOn(handle, "read").mockImplementationOnce(
         async (...args: Parameters<typeof handle.read>) => {
           const result = await read(...args);
-          if (change === "replace") await rename(replacement, path);
-          else if (change === "disappear")
+          if (change === "replace") {
+            // Rename the admitted source away before publishing its replacement;
+            // Windows cannot replace an open destination in one rename.
+            await rename(path, join(root, "retired"));
+            await rename(replacement, path);
+          } else if (change === "disappear")
             await rename(path, join(root, "retired"));
           else if (change === "grow") await appendFile(path, "changed=true\n");
           else await truncate(path, 1);

@@ -1,6 +1,11 @@
+import {
+  GhidraFixtureLauncher,
+  ghidraFixtureHost,
+} from "../providers/ghidra/ghidraClient.fixture.js";
+import { elf } from "../../../src/domain/binaryTarget.fixture.js";
 import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
 import { expect, it } from "vitest";
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { nativeAotPeFixture } from "../../fixtures/nativeaotPe.js";
@@ -12,8 +17,6 @@ import {
   ghidraInstallationHost,
   sessionEvidence,
 } from "./ghidraMcpHarness.js";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { GhidraClient } from "../../../src/ghidra/GhidraClient.js";
 import { GhidraProvider } from "../../../src/ghidra/GhidraProvider.js";
@@ -22,7 +25,6 @@ import { silentLogger } from "../../../src/logger.js";
 import { composeBinarySession } from "../../../src/application/binary/BinarySessionComposition.js";
 import { AnalysisProviderRegistry } from "../../../src/application/binary/AnalysisProviderRegistry.js";
 import { createServer } from "../../../src/server/createServer.js";
-import { waitForExit } from "../../support/process/processFixture.js";
 import { GhidraSessionError } from "../../../src/ghidra/GhidraSessionError.js";
 
 it("retains byte-search coverage and rejects malformed pages before creating Evidence", async () => {
@@ -163,6 +165,11 @@ it("projects cancelled byte searches as typed failures without successful partia
 });
 
 it("searches bytes through MCP and the socket bridge with pagination and skipped coverage", async () => {
+  const target = join(
+    await createTestTempDirectory("rea-search-bytes-mcp-"),
+    "target.elf",
+  );
+  await writeFile(target, elf(2, 1, 62));
   const config = parseConfig({ GHIDRA_INSTALL_DIR: "/fixture/ghidra" });
   if (!config.ok) throw config.error;
   const provider = new GhidraProvider(
@@ -173,52 +180,9 @@ it("searches bytes through MCP and the socket bridge with pagination and skipped
     (options) =>
       new GhidraClient({
         ...options,
-        platform: process.platform,
+        ...ghidraFixtureHost,
         startupTimeoutMs: 5000,
-        launcher: {
-          launch: async (launch) => {
-            const projectRoot = join(launch.runtimeRoot, "project");
-            await mkdir(projectRoot);
-            const child = spawn(
-              process.execPath,
-              [
-                fileURLToPath(
-                  new URL("../../fixtures/fakeGhidra.mjs", import.meta.url),
-                ),
-              ],
-              {
-                stdio: ["ignore", "pipe", "pipe"],
-                env: {
-                  ...process.env,
-                  REA_GHIDRA_FIXTURE_CONFIG: JSON.stringify({
-                    endpointPath: launch.endpointPath,
-                    token: launch.token,
-                    runId: launch.runId,
-                    providerVersion: launch.providerVersion,
-                    profileDigest: launch.profileDigest,
-                    targetSha256: launch.targetSha256,
-                    transport: launch.transport,
-                  }),
-                },
-              },
-            );
-            return ok({
-              process: child,
-              ownsProcessLifetime: true as const,
-              projectRoot,
-              ghidraLogPath: join(launch.runtimeRoot, "ghidra.log"),
-              scriptLogPath: join(launch.runtimeRoot, "script.log"),
-              cleanup: async () => {
-                const signaled =
-                  child.exitCode === null && child.signalCode === null;
-                if (signaled) child.kill("SIGTERM");
-                return (await waitForExit(child, 2000))
-                  ? { cleaned: true as const, signaled }
-                  : { cleaned: false as const, reason: "Fixture did not exit" };
-              },
-            });
-          },
-        },
+        launcher: new GhidraFixtureLauncher(),
       }),
   );
   const session = composeBinarySession(
@@ -236,7 +200,7 @@ it("searches bytes through MCP and the socket bridge with pagination and skipped
     await client.connect(clientTransport);
     const opened = await client.callTool({
       name: "open_binary",
-      arguments: { path: process.execPath },
+      arguments: { path: target },
     });
     expect(opened.isError).not.toBe(true);
     const first = await client.callTool({
