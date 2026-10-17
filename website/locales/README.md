@@ -125,6 +125,11 @@ setup guides, case studies, articles and Contributors. Like the other editions,
 it uses the labeled English fallback when a future source change leaves a
 required translation missing or pending review.
 
+Telugu (`te`) has a translated README. Its website catalog is the generated
+template with no reviewed messages yet, so every page currently uses the
+labeled English fallback. Website translation work can begin from the existing
+catalog without changing this README edition.
+
 The first catalogs started with machine-assisted drafts. They include editorial
 corrections to navigation, prompts and technical terminology. Traditional Chinese
 started from the Simplified Chinese draft and is maintained independently.

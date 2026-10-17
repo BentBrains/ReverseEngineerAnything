@@ -113,5 +113,11 @@
     "name": "Ελληνικά",
     "readme": "docs/readme/README_el.md",
     "dir": "ltr"
+  },
+  {
+    "code": "te",
+    "name": "తెలుగు",
+    "readme": "docs/readme/README_te.md",
+    "dir": "ltr"
   }
 ]
