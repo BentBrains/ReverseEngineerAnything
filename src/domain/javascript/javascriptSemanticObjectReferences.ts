@@ -12,6 +12,7 @@ import {
   type JavaScriptSemanticPropertyPath as PropertyPath,
 } from "./javascriptSemanticPropertyPaths.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
+import { completeSemanticSteps } from "./javascriptSemanticTraversal.js";
 import {
   SemanticGetterQuery,
   type GetterQueryJob,
@@ -530,12 +531,17 @@ interface ObjectPropertyIndex {
 // index removes the per-write scan of every property.
 const propertyIndexes = new WeakMap<t.ObjectExpression, ObjectPropertyIndex>();
 
-const objectPropertyIndex = (node: t.ObjectExpression): ObjectPropertyIndex => {
+function* objectPropertyIndexSteps(
+  node: t.ObjectExpression,
+): Generator<void, ObjectPropertyIndex> {
   const cached = propertyIndexes.get(node);
   if (cached !== undefined) return cached;
   const keyIndependent: number[] = [];
   const byName = new Map<string, number[]>();
-  node.properties.forEach((property, index) => {
+  for (let index = 0; index < node.properties.length; index++) {
+    if (index % 1024 === 0) yield;
+    const property = node.properties[index];
+    if (property === undefined) continue;
     const name = t.isSpreadElement(property)
       ? null
       : semanticStaticPropertyKey(property.key, property.computed);
@@ -547,34 +553,43 @@ const objectPropertyIndex = (node: t.ObjectExpression): ObjectPropertyIndex => {
         name === "__proto__")
     ) {
       keyIndependent.push(index);
-      return;
+      continue;
     }
     const positions = byName.get(name);
     if (positions === undefined) byName.set(name, [index]);
     else positions.push(index);
-  });
+  }
   const index = { keyIndependent, byName };
   propertyIndexes.set(node, index);
   return index;
-};
+}
 
 /**
  * Properties in reverse source order that can affect `key`. For an exact key,
  * another static name only updates bookkeeping for that other name, which
  * this key never reads, so only same-name and key-independent entries remain.
  */
-const relevantPropertiesInReverse = (
+function* relevantPropertiesInReverseSteps(
   node: t.ObjectExpression,
   key: PropertyPath[number] | undefined,
-): readonly ObjectLiteralMember[] => {
-  if (typeof key !== "string" && typeof key !== "number")
-    return [...node.properties].reverse();
-  const { keyIndependent, byName } = objectPropertyIndex(node);
+): Generator<void, readonly ObjectLiteralMember[]> {
+  if (typeof key !== "string" && typeof key !== "number") {
+    const properties: ObjectLiteralMember[] = [];
+    for (let index = node.properties.length - 1; index >= 0; index--) {
+      if (index % 1024 === 0) yield;
+      const property = node.properties[index];
+      if (property !== undefined) properties.push(property);
+    }
+    return properties;
+  }
+  const { keyIndependent, byName } = yield* objectPropertyIndexSteps(node);
   const named = byName.get(String(key)) ?? [];
   const relevant: ObjectLiteralMember[] = [];
   let left = keyIndependent.length - 1;
   let right = named.length - 1;
+  let examined = 0;
   while (left >= 0 || right >= 0) {
+    if (examined++ % 1024 === 0) yield;
     const fromLeft =
       right < 0 ||
       (left >= 0 && (keyIndependent[left] ?? -1) > (named[right] ?? -1));
@@ -584,19 +599,29 @@ const relevantPropertiesInReverse = (
     if (property !== undefined) relevant.push(property);
   }
   return relevant;
-};
+}
 
 export const semanticObjectPropertyReferences = (
   node: t.ObjectExpression,
   path: PropertyPath,
   state: JavaScriptSemanticAnalysisState,
-): readonly JavaScriptSemanticObjectReference[] => {
+): readonly JavaScriptSemanticObjectReference[] =>
+  completeSemanticSteps(
+    semanticObjectPropertyReferencesSteps(node, path, state),
+  );
+
+/** Share getter scheduling while yielding during source-sized literal walks. */
+export function* semanticObjectPropertyReferencesSteps(
+  node: t.ObjectExpression,
+  path: PropertyPath,
+  state: JavaScriptSemanticAnalysisState,
+): Generator<void, readonly JavaScriptSemanticObjectReference[]> {
   const query = new SemanticGetterQuery(state);
-  return query.run(
-    () => objectPropertyReferences(node, path, query),
+  return yield* query.runSteps(
+    () => new ObjectReferenceWalk(node, path, query).runSteps(),
     (job) => expandGetterResult(job, query),
   );
-};
+}
 
 class ObjectReferenceWalk {
   readonly #references: JavaScriptSemanticObjectReference[] = [];
@@ -631,7 +656,7 @@ class ObjectReferenceWalk {
         };
   }
 
-  #spread(property: t.SpreadElement): void {
+  *#spreadSteps(property: t.SpreadElement): Generator<void> {
     const selected = this.#key ?? null;
     if (typeof selected !== "object" && this.#overwritten.has(String(selected)))
       return;
@@ -643,17 +668,20 @@ class ObjectReferenceWalk {
       selected !== null &&
       typeof selected !== "object" &&
       t.isObjectExpression(property.argument) &&
-      objectExpressionDefinesKey(property.argument, String(selected))
+      (yield* semanticObjectExpressionDefinesKeySteps(
+        property.argument,
+        String(selected),
+      ))
     ) {
       this.#overwritten.add(String(selected));
       this.#data.add(String(selected));
     }
   }
 
-  #prototype(
+  *#prototypeSteps(
     property: t.ObjectMethod | t.ObjectProperty,
     name: string | null,
-  ): boolean {
+  ): Generator<void, boolean> {
     if (
       !t.isObjectProperty(property) ||
       property.computed ||
@@ -667,7 +695,10 @@ class ObjectReferenceWalk {
       (selected === null ||
         typeof selected === "object" ||
         (typeof selected === "string" &&
-          !objectExpressionDefinesKey(this.node, selected)))
+          !(yield* semanticObjectExpressionDefinesKeySteps(
+            this.node,
+            selected,
+          ))))
     )
       this.#references.push({
         node: property.value,
@@ -709,13 +740,13 @@ class ObjectReferenceWalk {
     }
   }
 
-  #visit(property: ObjectLiteralMember): void {
+  *#visitSteps(property: ObjectLiteralMember): Generator<void> {
     if (t.isSpreadElement(property)) {
-      this.#spread(property);
+      yield* this.#spreadSteps(property);
       return;
     }
     const name = semanticStaticPropertyKey(property.key, property.computed);
-    if (this.#prototype(property, name)) return;
+    if (yield* this.#prototypeSteps(property, name)) return;
     const kind =
       t.isObjectMethod(property) && property.kind !== "method"
         ? property.kind
@@ -732,31 +763,35 @@ class ObjectReferenceWalk {
     if (name !== null) this.#record(name, kind);
   }
 
-  run(): readonly JavaScriptSemanticObjectReference[] {
-    for (const property of relevantPropertiesInReverse(this.node, this.#key))
-      this.#visit(property);
+  *runSteps(): Generator<void, readonly JavaScriptSemanticObjectReference[]> {
+    let examined = 0;
+    for (const property of yield* relevantPropertiesInReverseSteps(
+      this.node,
+      this.#key,
+    )) {
+      if (examined++ % 1024 === 0) yield;
+      yield* this.#visitSteps(property);
+    }
     return this.#references;
   }
 }
 
-const objectPropertyReferences = (
-  node: t.ObjectExpression,
-  path: PropertyPath,
-  query: SemanticGetterQuery,
-): readonly JavaScriptSemanticObjectReference[] =>
-  new ObjectReferenceWalk(node, path, query).run();
-
-const objectExpressionDefinesKey = (
+export function* semanticObjectExpressionDefinesKeySteps(
   root: t.ObjectExpression,
   key: string,
-): boolean => {
+): Generator<void, boolean> {
   const pending: t.ObjectExpression[] = [root];
   const seen = new Set<t.ObjectExpression>();
+  let examined = 0;
   for (let cursor = 0; cursor < pending.length; cursor++) {
     const object = pending[cursor];
     if (object === undefined || seen.has(object)) continue;
     seen.add(object);
-    for (const property of object.properties) {
+    for (const property of yield* relevantPropertiesInReverseSteps(
+      object,
+      key,
+    )) {
+      if (examined++ % 1024 === 0) yield;
       if (t.isSpreadElement(property)) {
         if (t.isObjectExpression(property.argument))
           pending.push(property.argument);
@@ -776,4 +811,4 @@ const objectExpressionDefinesKey = (
     }
   }
   return false;
-};
+}

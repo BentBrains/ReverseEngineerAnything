@@ -235,77 +235,68 @@ cliTest(
   },
 );
 
-cliTest(
-  "preserves early-return predicates on recovered bridge paths through CLI and stdio MCP",
-  async ({ cli }) => {
-    const cases = [
-      {
-        name: "conditional early return",
-        body: 'if(x)return;e.contextBridge.exposeInMainWorld("api",{copy:()=>e.ipcRenderer.send("x")});',
-        conditions: ["!(x)"],
-        coverage: "partial",
-      },
-      {
-        name: "equivalent nested branch",
-        body: 'if(!x){e.contextBridge.exposeInMainWorld("api",{copy:()=>e.ipcRenderer.send("x")});}',
-        conditions: ["!x"],
-        coverage: "partial",
-      },
-      {
-        name: "definite early return",
-        body: 'return;e.contextBridge.exposeInMainWorld("api",{copy:()=>e.ipcRenderer.send("x")});',
-        conditions: [],
-        coverage: "complete",
-      },
-      {
-        name: "unguarded exposure",
-        body: 'e.contextBridge.exposeInMainWorld("api",{copy:()=>e.ipcRenderer.send("x")});',
-        conditions: [],
-        coverage: "complete",
-      },
-    ] as const;
+const earlyReturnCases = [
+  {
+    name: "conditional early return",
+    body: 'if(x)return;e.contextBridge.exposeInMainWorld("api",{copy:()=>e.ipcRenderer.send("x")});',
+    conditions: ["!(x)"],
+    coverage: "partial",
+  },
+  {
+    name: "equivalent nested branch",
+    body: 'if(!x){e.contextBridge.exposeInMainWorld("api",{copy:()=>e.ipcRenderer.send("x")});}',
+    conditions: ["!x"],
+    coverage: "partial",
+  },
+  {
+    name: "definite early return",
+    body: 'return;e.contextBridge.exposeInMainWorld("api",{copy:()=>e.ipcRenderer.send("x")});',
+    conditions: [],
+    coverage: "complete",
+  },
+  {
+    name: "unguarded exposure",
+    body: 'e.contextBridge.exposeInMainWorld("api",{copy:()=>e.ipcRenderer.send("x")});',
+    conditions: [],
+    coverage: "complete",
+  },
+] as const;
 
-    for (const surface of ["CLI", "stdio MCP"] as const)
-      for (const fixture of cases) {
-        const root = await createTestTempDirectory(
-          "rea-electron-early-return-",
-        );
-        await writeFixtureFiles(root, {
-          "index.js": `const e=require("electron");function f(x){${fixture.body}}f(globalThis.blocked);`,
-        });
-        const application = await analyzeJavaScriptDirectory(
-          surface,
-          cli,
-          root,
-        );
-        const observations = application.graph.nodes.flatMap(
-          (node) => node.observations,
-        );
-        const terminal = observations.find(
-          (observation) =>
-            observation.properties.entry === "api.copy" &&
-            observation.properties.step_kind === "terminal",
-        );
-        if (fixture.name === "definite early return") {
-          expect(terminal).toBeUndefined();
-          continue;
-        }
-        const terminalEvidence =
-          callPathTerminalObservationSchema.parse(terminal);
-        expect(
-          terminalEvidence.properties.conditions.map(
-            ({ expression }) => expression,
-          ),
-        ).toEqual(fixture.conditions);
-        expect(terminalEvidence.evidence.coverage.status).toBe(
-          fixture.coverage,
-        );
-        expect(application.graph.coverage.status).toBe(fixture.coverage);
-        const source = observations.find(
-          (observation) => observation.properties.file_kind === "javascript",
-        );
-        expect(source?.properties.parse_status).toBe(fixture.coverage);
+cliTest.for(earlyReturnCases)(
+  "preserves $name predicates on recovered bridge paths through CLI and stdio MCP",
+  async (fixture, { cli }) => {
+    for (const surface of ["CLI", "stdio MCP"] as const) {
+      const root = await createTestTempDirectory("rea-electron-early-return-");
+      await writeFixtureFiles(root, {
+        "index.js": `const e=require("electron");function f(x){${fixture.body}}f(globalThis.blocked);`,
+      });
+      const application = await analyzeJavaScriptDirectory(surface, cli, root);
+      const observations = application.graph.nodes.flatMap(
+        (node) => node.observations,
+      );
+      const terminal = observations.find(
+        (observation) =>
+          observation.properties.entry === "api.copy" &&
+          observation.properties.step_kind === "terminal",
+      );
+      if (fixture.name === "definite early return") {
+        expect(terminal).toBeUndefined();
+        continue;
       }
+      const terminalEvidence =
+        callPathTerminalObservationSchema.parse(terminal);
+      expect(
+        terminalEvidence.properties.conditions.map(
+          ({ expression }) => expression,
+        ),
+      ).toEqual(fixture.conditions);
+      expect(terminalEvidence.evidence.coverage.status).toBe(fixture.coverage);
+      expect(application.graph.coverage.status).toBe(fixture.coverage);
+      const source = observations.find(
+        (observation) => observation.properties.file_kind === "javascript",
+      );
+      expect(source?.properties.parse_status).toBe(fixture.coverage);
+    }
   },
 );
 

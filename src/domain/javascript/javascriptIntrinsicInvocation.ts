@@ -71,7 +71,11 @@ export const resolveJavaScriptIntrinsicInvocation = (
   node: t.CallExpression | t.OptionalCallExpression,
   intrinsicPath: (node: t.Node) => readonly string[] | undefined,
   boundIntrinsic: (node: t.Node) => JavaScriptIntrinsicInvocation | undefined,
-  intrinsicReadChanged: (node: t.Node, path: readonly string[]) => boolean,
+  intrinsicReadChanged: (
+    node: t.Node,
+    path: readonly string[],
+    readKind?: "callable" | "wrapper",
+  ) => boolean,
 ): JavaScriptIntrinsicInvocation | undefined => {
   const visited = new Set<t.Node>();
   let callee: t.Node = node.callee;
@@ -79,6 +83,7 @@ export const resolveJavaScriptIntrinsicInvocation = (
     expandJavaScriptInvocationArguments(node.arguments);
   let receiver: t.Node | undefined;
   let explicitReceiver = false;
+  let opaque = false;
   for (;;) {
     callee = unwrapJavaScriptExpression(callee).node;
     if (t.isSequenceExpression(callee)) {
@@ -93,8 +98,7 @@ export const resolveJavaScriptIntrinsicInvocation = (
     if (visited.has(callee)) return undefined;
     visited.add(callee);
     let path = intrinsicPath(callee);
-    if (path !== undefined && intrinsicReadChanged(callee, path))
-      return { kind: "opaque", path, arguments: undefined };
+    const changed = path !== undefined && intrinsicReadChanged(callee, path);
     if (path === undefined) {
       if (
         t.isMemberExpression(callee) ||
@@ -108,9 +112,16 @@ export const resolveJavaScriptIntrinsicInvocation = (
           const bound = boundIntrinsic(callee.object);
           if (
             bound !== undefined &&
-            intrinsicReadChanged(callee, [...bound.path, method])
+            intrinsicReadChanged(callee, [...bound.path, method], "wrapper")
           )
-            return { kind: "opaque", path: bound.path, arguments: undefined };
+            return {
+              kind: "opaque",
+              path: bound.path,
+              arguments: undefined,
+              ...(bound.receiver === undefined
+                ? {}
+                : { receiver: bound.receiver }),
+            };
           receiver = arguments_?.[0];
           explicitReceiver = true;
           callee = callee.object;
@@ -125,9 +136,9 @@ export const resolveJavaScriptIntrinsicInvocation = (
       receiver = bound.receiver;
       explicitReceiver = true;
       arguments_ =
-        bound.arguments === undefined
+        bound.arguments === undefined || arguments_ === undefined
           ? undefined
-          : [...bound.arguments, ...(arguments_ ?? [])];
+          : [...bound.arguments, ...arguments_];
     }
     const method = path.length > 3 ? path.at(-1) : undefined;
     if (method === "call" || method === "apply") {
@@ -140,6 +151,19 @@ export const resolveJavaScriptIntrinsicInvocation = (
           : undefined;
       if (!t.isExpression(callable))
         return { kind: "opaque", path, arguments: undefined };
+      const wrapperRead =
+        t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee);
+      if (
+        intrinsicReadChanged(callee, path, wrapperRead ? "wrapper" : "callable")
+      )
+        return {
+          kind: "opaque",
+          path,
+          arguments: undefined,
+          ...(receiver === undefined ? {} : { receiver }),
+        };
+      // the callable's capture and its later invocation-property read are distinct.
+      opaque ||= intrinsicReadChanged(callable, path.slice(0, -1));
       callee = callable;
       receiver = arguments_?.[0];
       explicitReceiver = true;
@@ -147,8 +171,10 @@ export const resolveJavaScriptIntrinsicInvocation = (
       continue;
     }
     if (path.join(".") === "intrinsic.Reflect.apply") {
+      if (changed) return { kind: "opaque", path, arguments: undefined };
       const callable = arguments_?.[0];
-      if (!t.isExpression(callable)) return undefined;
+      if (!t.isExpression(callable))
+        return { kind: "opaque", path, arguments: undefined };
       callee = callable;
       receiver = arguments_?.[1];
       explicitReceiver = true;
@@ -156,9 +182,9 @@ export const resolveJavaScriptIntrinsicInvocation = (
       continue;
     }
     return {
-      kind: "known",
+      kind: opaque || changed ? "opaque" : "known",
       path,
-      arguments: arguments_,
+      arguments: opaque || changed ? undefined : arguments_,
       ...(receiver === undefined ? {} : { receiver }),
     };
   }
