@@ -559,6 +559,73 @@ of a later null value. Inspect the slot's `xrefs` and the writer's assembly or
 pseudocode, retaining uncertainty about execution order and runtime values.
 These operations inspect static evidence and do not execute the target.
 
+## Recovering large native analysis results
+
+A completed `analyze_function` dossier supports native views from retained
+Evidence. Select its Evidence ID, then request a pseudocode page:
+
+```json
+{
+  "source": {
+    "kind": "retained-evidence",
+    "evidence_id": "<dossier Evidence ID>"
+  },
+  "view": {
+    "kind": "native",
+    "facet": "pseudocode",
+    "offset": 0,
+    "limit": 4096
+  }
+}
+```
+
+Call `inspect_analysis_view` with that input and first inspect
+`normalized_result.item` in the Evidence envelope. An unavailable facet, including
+pseudocode, returns a singleton status object (`{available: false, reason}`)
+instead of text or rows. Unrecorded optional collections return that status too.
+Preserve the status and reason as an explicit unknown. For available pseudocode,
+follow `normalized_result.coverage.next_offset`; offsets and limits count UTF-16
+code units. Available assembly and recorded collection data use row pages.
+Singleton facets `procedure`, `native_api`, and `value_flow_summary`
+require offset 0. Paging reads retained evidence and does not
+repeat provider analysis. Keep source coverage and limitations: exhausting text
+does not establish that the analyzed body covers every runtime path.
+
+Standalone `procedure_pseudo_code` strings and `batch_decompile` results are not
+function dossiers and cannot be passed to the native dossier view. Preserve or
+export their complete Evidence instead. `batch_decompile` currently returns full
+per-item pseudocode and does not accept `detail: "summary"`.
+
+A client timeout leaves provider completion unknown: analysis may continue, or
+cancellation may arrive after a successful result has settled. Before repeating
+analysis, use `get_evidence_bundle` with `detail: "summary"` to find matching
+completed `analyze_function` Evidence and reuse a matching dossier. Provider
+activity in `binary_session` is optional: Ghidra does not currently expose it,
+so `analysis_activity.status: "not_observed"` means unknown, not idle or failed.
+No matching record together with `not_observed` does not establish completion
+or failure. Keep the session open, allow the pending request to settle, and
+recheck for completed Evidence instead of immediately closing or repeating it.
+If closing is necessary, `close_binary` with an absolute `snapshot_path` drains
+earlier requests and saves their immutable snapshot before clearing session
+records; a failed save leaves the session open. Check the save/close result and
+preserve the snapshot for reopening. Sessions with metadata edits cannot save an
+immutable snapshot: wait/recheck and export needed Evidence before closing.
+A completed result whose delivery was too large already has a separate retained continuation path.
+When cancellation actually interrupts an active Ghidra request, successful cleanup
+discards its ephemeral database; the next uncached provider query imports the
+selected target again. While the binary session remains open without
+`close_binary`, previously retained successful Evidence and matching snapshot
+entries can still be reused. Incomplete cleanup retains the owned process/runtime
+and blocks fresh import. Export needed Evidence before `close_binary`: closing
+clears session-retained Evidence IDs and snapshot cache entries even when cleanup
+fails. Check the close result and retry after addressing `cleanup_incomplete`
+before reopening the target; do not reuse the cleared IDs after close. Preserved
+complete dossier Evidence can instead be supplied through the view's inline
+source. New uncached queries can require another import. Do not repeat completed work to
+recover a smaller reply, or treat a client timeout as an empty successful result.
+The [deadline guide](#ghidra-first-query-deadlines-and-recovery) explains which
+settings belong to the client and how to recover after interrupted startup.
+
 ## Ghidra first-query deadlines and recovery
 
 A successful MCP initialize handshake establishes the REA connection.

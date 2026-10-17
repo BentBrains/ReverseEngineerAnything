@@ -171,7 +171,7 @@ export class ToolResultDelivery {
     const retainedEvidence = recovery.evidence_reference !== undefined;
     const recoveryAdvice =
       recovery.continuation !== undefined
-        ? "Call inspect_analysis_view with the supplied continuation arguments to read retained pseudocode. Follow coverage.next_offset for subsequent pages; reduce the page limit if needed, or export the complete retained Evidence."
+        ? "Call inspect_analysis_view with the supplied continuation arguments to read retained pseudocode. Inspect normalized_result.item for an unavailable status; otherwise follow normalized_result.coverage.next_offset for subsequent pages. Reduce the page limit if needed, or export the complete retained Evidence."
         : retainedEvidence
           ? "Export retained evidence to consume the complete analysis, or use complete CLI JSON output."
           : encoded.constraint === "string-length"
