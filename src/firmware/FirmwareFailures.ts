@@ -15,7 +15,7 @@ import {
 import { analysisErrorWithCleanupFailure } from "../domain/analysisErrorCleanup.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import { ProviderCleanupError } from "../domain/providerCleanupError.js";
-import { FIRMWARE_LIMITS } from "./FirmwareRelease.js";
+import type { FirmwareDeadline } from "./FirmwareRelease.js";
 import { z } from "zod";
 
 /** Translate the producing file owner's outcome without guessing from a later signal. */
@@ -23,15 +23,15 @@ export const firmwareFailure = (
   cause: unknown,
   engine: string,
   operation: string,
-  deadline?: AbortSignal,
+  deadline?: FirmwareDeadline,
   treeCleanupLease?: AnalysisCleanupLease,
 ): AnalysisError => {
   if (
     cause instanceof AnalysisCancelledError &&
-    deadline?.aborted &&
-    cause.cause === deadline.reason
+    deadline?.signal.aborted &&
+    cause.cause === deadline.signal.reason
   )
-    return new AnalysisTimeoutError(operation, FIRMWARE_LIMITS.timeoutMs, {
+    return new AnalysisTimeoutError(operation, deadline.timeoutMs, {
       cause: cause.cause,
       partialObservation: cause.partialObservation,
     });
@@ -110,10 +110,10 @@ export const firmwareFailure = (
 export const firmwareCancellation = (
   operation: string,
   reason: unknown,
-  deadline?: AbortSignal,
+  deadline?: FirmwareDeadline,
 ): AnalysisError =>
-  deadline?.aborted && reason === deadline.reason
-    ? new AnalysisTimeoutError(operation, FIRMWARE_LIMITS.timeoutMs, {
+  deadline?.signal.aborted && reason === deadline.signal.reason
+    ? new AnalysisTimeoutError(operation, deadline.timeoutMs, {
         cause: reason,
       })
     : new AnalysisCancelledError(operation, { cause: reason });

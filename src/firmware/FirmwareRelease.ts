@@ -32,4 +32,23 @@ export const FIRMWARE_LIMITS = {
   diagnosticBytes: 8 * 1024 * 1024,
   addressSpaceBytes: 1024 * 1024 * 1024,
   timeoutMs: 120_000,
+  /** Publication writes and re-reads every file, so its budget scales with the admitted entry count. */
+  publicationMsPerEntry: 250,
 } as const;
+
+/** An abort signal paired with the budget that produced it, so timeouts report the phase's real limit. */
+export interface FirmwareDeadline {
+  readonly signal: AbortSignal;
+  readonly timeoutMs: number;
+}
+
+/** Start a deadline of the given budget. */
+export const startFirmwareDeadline = (timeoutMs: number): FirmwareDeadline => ({
+  signal: AbortSignal.timeout(timeoutMs),
+  timeoutMs,
+});
+
+/** Publication budget: the base deadline plus time per admitted staging entry, independent of extraction time. */
+export const firmwarePublicationTimeoutMs = (entryCount: number): number =>
+  FIRMWARE_LIMITS.timeoutMs +
+  entryCount * FIRMWARE_LIMITS.publicationMsPerEntry;

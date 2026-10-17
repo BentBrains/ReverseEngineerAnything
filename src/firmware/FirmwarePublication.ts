@@ -39,7 +39,7 @@ const GAP_CONTINUATIONS: Record<ExtractionGap["kind"], string> = {
 const UNNAMED_DEPENDENCY_CONTINUATION =
   "The producer reported a missing extractor dependency without naming it; its identity is unavailable in this evidence. No specific installation or rerun can be prescribed from this report. Retain the gap as unextracted unless additional provider evidence establishes the dependency. REA installs nothing.";
 
-import { FIRMWARE_LIMITS } from "./FirmwareRelease.js";
+import { FIRMWARE_LIMITS, type FirmwareDeadline } from "./FirmwareRelease.js";
 
 /** The depth ceiling cannot be raised past the input schema maximum. */
 const MAX_EXTRACTION_DEPTH = 10;
@@ -89,7 +89,7 @@ const gapSortKey = (gap: ExtractionGap): string =>
 export const publishFirmwareExtraction = async (context: {
   files: FirmwareFileAccess;
   workspacePath: string;
-  deadline: AbortSignal;
+  deadline: FirmwareDeadline;
   outputDirectory: string;
   entries: readonly FirmwareEntry[];
   normalized: ReturnType<typeof normalizeUnblobReport>;

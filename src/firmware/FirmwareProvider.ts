@@ -27,6 +27,9 @@ import type { SafeOutputTree } from "../artifacts/SafeOutputTree.js";
 import { publishFirmwareExtraction } from "./FirmwarePublication.js";
 import {
   FIRMWARE_LIMITS,
+  firmwarePublicationTimeoutMs,
+  startFirmwareDeadline,
+  type FirmwareDeadline,
   BINWALK_PROVIDER_IDENTITY,
   UNBLOB_PROVIDER_IDENTITY,
 } from "./FirmwareRelease.js";
@@ -303,11 +306,14 @@ export class FirmwareProvider implements FirmwareAnalysisPort {
     let rootLease: AnalysisCleanupLease | undefined;
     const engineName =
       request.operation === "inspect_firmware_regions" ? "binwalk" : "unblob";
-    const deadline = AbortSignal.timeout(FIRMWARE_LIMITS.timeoutMs);
-    const signal =
+    const withCaller = (phase: FirmwareDeadline) =>
       options?.signal === undefined
-        ? deadline
-        : AbortSignal.any([options.signal, deadline]);
+        ? phase.signal
+        : AbortSignal.any([options.signal, phase.signal]);
+    // Extraction and publication have separate budgets: publication time depends on the
+    // destination filesystem, so it must not be charged to the extraction deadline.
+    let deadline = startFirmwareDeadline(FIRMWARE_LIMITS.timeoutMs);
+    let signal = withCaller(deadline);
     let outcome: Outcome;
     try {
       if (signal.aborted)
@@ -465,6 +471,16 @@ export class FirmwareProvider implements FirmwareAnalysisPort {
           request.operation,
           signal,
         );
+        // The inventory can finish after its deadline expired; an expired
+        // extraction must not publish under the fresh publication budget.
+        if (signal.aborted)
+          throw new AnalysisCancelledError(request.operation, {
+            cause: signal.reason,
+          });
+        deadline = startFirmwareDeadline(
+          firmwarePublicationTimeoutMs(entries.length),
+        );
+        signal = withCaller(deadline);
         result = await publishFirmwareExtraction({
           files: this.#files,
           workspacePath: root.path,
@@ -580,7 +596,7 @@ const finishFirmwareWorkspace = async (
   request: FirmwareRequest,
   rootLease: AnalysisCleanupLease | undefined,
   signal: AbortSignal,
-  deadline: AbortSignal,
+  deadline: FirmwareDeadline,
 ): Promise<Outcome> => {
   if (
     !outcome.ok &&
