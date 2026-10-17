@@ -126,6 +126,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     idempotent: false,
   }),
   inspect_go_binary: evidence,
+  inspect_il2cpp_metadata: evidence,
   inspect_rust_binary: evidence,
   inspect_sqlite_database: effects({
     mutatesSession: true,

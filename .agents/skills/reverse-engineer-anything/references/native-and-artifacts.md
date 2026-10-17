@@ -11,6 +11,19 @@ unparsed module-text line. A missing record is an unknown, not proof of a
 non-Go binary; observed metadata does not authenticate its claims. Function,
 source and type recovery remain a separate native-analysis question.
 
+## IL2CPP metadata
+
+Use `inspect_il2cpp_metadata` for an explicit local Unity `global-metadata.dat`
+(versions 29, 31 and 39) when the question concerns assembly images, type or method names,
+namespaces or index ranges. No `open_binary`, Unity installation or target
+execution is required. The CLI equivalent is `inspect-il2cpp-metadata PATH`.
+Select `detail: "summary"` on the first call for counts; page `images`, `types` or `methods`
+through `inspect_analysis_view`; row positions are metadata indices. Preserve
+artifact SHA-256 and index widths. Unrecognized magic may mean encryption and
+is unsupported, not decrypted. Linking names to `GameAssembly` or
+`UnityFramework` code addresses remains a separate native-analysis question.
+See [IL2CPP metadata](https://github.com/morluto/rea/blob/main/docs/il2cpp-metadata.md).
+
 ## Rust dependency metadata
 
 Use `inspect_rust_binary` for an explicit local ELF, PE, or thin Mach-O when

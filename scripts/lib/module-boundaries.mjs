@@ -8,6 +8,7 @@ const MIGRATED_PROVIDER_ROOTS = new Set([
   "sqlite",
   "evm",
   "go",
+  "il2cpp",
   "rust",
   "wasm",
   "captures",

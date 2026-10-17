@@ -58,8 +58,10 @@ assembly-wide inventory, so the output can still be large.
 
 Choose the workflow from the artifact's contents rather than its `.exe` or
 `.dll` extension. The managed parser requires PE/CLI metadata; it does not
-unpack .NET single-file hosts or decode IL2CPP metadata. NativeAOT method bodies
-require native analysis. See the [managed-code guide](managed-code-analysis.md)
+unpack .NET single-file hosts or decode IL2CPP. For the image, type and method
+names in a Unity `global-metadata.dat`, use
+[IL2CPP metadata](il2cpp-metadata.md). NativeAOT method bodies require native
+analysis. See the [managed-code guide](managed-code-analysis.md)
 for supported deployment forms, selection semantics, and coverage limits.
 
 ## SQLite snapshots
@@ -82,6 +84,17 @@ rea inspect-go-binary /absolute/path/to/program --json
 The shared CLI/MCP workflow reports compiler version, modules, replacements,
 build settings, original bytes and SHA-256. See [Go binaries](go-binaries.md)
 for supported containers and absent or malformed metadata.
+
+Inspect Unity IL2CPP metadata names without Unity or a disassembler:
+
+```bash
+rea inspect-il2cpp-metadata /absolute/path/global-metadata.dat --json
+```
+
+The command decodes a version 29, 31 or 39 `global-metadata.dat` and reports assembly
+images, type and method names, index ranges, header sections and SHA-256. It
+does not decrypt metadata or link names to native code addresses. MCP returns every row by
+default; `detail: "summary"` returns counts and pages rows on request. See [IL2CPP metadata](il2cpp-metadata.md).
 
 Inspect an embedded cargo-auditable Rust dependency list without installing
 Rust or configuring a disassembler:

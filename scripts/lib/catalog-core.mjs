@@ -69,6 +69,8 @@ const SOURCE_PATHS = {
   evmProvider: "dist/evm/EvmoleRelease.js",
   goContracts: "dist/contracts/go/goToolContracts.js",
   goProvider: "dist/go/GoBinaryProvider.js",
+  il2cppContracts: "dist/contracts/il2cpp/il2cppToolContracts.js",
+  il2cppProvider: "dist/il2cpp/Il2cppMetadataProvider.js",
   rustContracts: "dist/contracts/rust/rustToolContracts.js",
   rustProvider: "dist/rust/RustBinaryProvider.js",
   artifactContracts: "dist/contracts/artifactToolContracts.js",

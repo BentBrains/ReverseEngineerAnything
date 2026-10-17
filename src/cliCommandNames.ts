@@ -58,6 +58,7 @@ export const CLI_COMMANDS = Object.freeze({
   debugWithRizin: "debug-with-rizin",
 
   inspectGoBinary: "inspect-go-binary",
+  inspectIl2cppMetadata: "inspect-il2cpp-metadata",
   inspectRustBinary: "inspect-rust-binary",
   inspectPeResources: "inspect-pe-resources",
   inspectAnalysisView: "inspect-analysis-view",

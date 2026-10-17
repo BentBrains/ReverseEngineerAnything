@@ -349,6 +349,7 @@ const workflowAvailabilityFor = ({
 }: AvailabilityContext): Availability | null => {
   if (
     name === "inspect_go_binary" ||
+    name === "inspect_il2cpp_metadata" ||
     name === "inspect_rust_binary" ||
     name === "inspect_electron_fuses"
   )
