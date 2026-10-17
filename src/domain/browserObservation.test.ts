@@ -123,6 +123,42 @@ describe("browser observation sensitive surfaces and retention", () => {
     expect(sanitized.redacted).toBe(true);
   });
 
+  it("preserves path userinfo-like text after a special-scheme backslash", () => {
+    const suffix = String.raw`\path@tail/../keep?x=1#frag`;
+    expect(
+      sanitizeBrowserUrl(`https://user:pass@app.example.test${suffix}`),
+    ).toEqual({
+      url: `https://app.example.test${suffix}`,
+      origin: "https://app.example.test",
+      query_parameter_names: ["x"],
+      redacted: true,
+    });
+    expect(sanitizeBrowserUrl(`https://app.example.test${suffix}`)).toEqual({
+      url: `https://app.example.test${suffix}`,
+      origin: "https://app.example.test",
+      query_parameter_names: ["x"],
+      redacted: false,
+    });
+    expect(
+      sanitizeBrowserUrl(
+        String.raw`custom://user:pass@host\name@tail/path?x=1#frag`,
+      ),
+    ).toEqual({
+      url: "custom://tail/path?x=1#frag",
+      origin: null,
+      query_parameter_names: ["x"],
+      redacted: true,
+    });
+    expect(
+      sanitizeBrowserUrl("https://us\ter:pass@app.example.test/path?x=1#frag"),
+    ).toEqual({
+      url: "https://app.example.test/path?x=1#frag",
+      origin: "https://app.example.test",
+      query_parameter_names: ["x"],
+      redacted: true,
+    });
+  });
+
   it("retains ordinary query values and malformed URL diagnostics", () => {
     const longName = `a${"x".repeat(400)}`;
     const parameters = [

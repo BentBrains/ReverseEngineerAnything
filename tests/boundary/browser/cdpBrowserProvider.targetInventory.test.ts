@@ -2,11 +2,12 @@ import { createServer } from "node:http";
 
 import { describe, expect, it } from "vitest";
 
-import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
-import { listBrowserTargetsInputSchema } from "../../../src/domain/browserObservation.js";
+import { parseEvidence } from "../../../src/domain/evidence.js";
+import { browserTargetListSchema } from "../../../src/domain/browserObservationSchemas.js";
+import { runCliJson } from "../../fixtures/cliJsonProcess.js";
 
 describe("CDP target inventory", () => {
-  it("returns every allowed target within the bounded discovery payload", async () => {
+  it("returns complete target inventory and original URL paths through the CLI", async () => {
     let port = 0;
     const targets = Array.from({ length: 1_101 }, (_, index) => {
       const id = `target-${String(index).padStart(4, "0")}`;
@@ -14,7 +15,10 @@ describe("CDP target inventory", () => {
         id,
         type: "page",
         title: `Page ${String(index)}`,
-        url: `https://allowed.example/page/${String(index)}`,
+        url:
+          index === 0
+            ? String.raw`https://user:pass@allowed.example\path@tail/../keep?x=1#frag`
+            : `https://allowed.example/page/${String(index)}`,
         ...(index === 0 ? {} : { attached: index === 1 ? false : true }),
         webSocketDebuggerUrl: `ws://127.0.0.1:${String(port)}/devtools/page/${id}`,
       };
@@ -52,24 +56,30 @@ describe("CDP target inventory", () => {
       port = address.port;
       const endpoint = `http://127.0.0.1:${String(port)}`;
 
-      const result = await new CdpBrowserProvider().listTargets(
-        listBrowserTargetsInputSchema.parse({
-          cdp_endpoint: endpoint,
-          allowed_origins: ["https://allowed.example"],
-        }),
+      const evidence = parseEvidence(
+        await runCliJson([
+          "list-browser-targets",
+          endpoint,
+          "--allowed-origins",
+          "https://allowed.example",
+          "--json",
+        ]),
       );
+      const result = browserTargetListSchema.parse(evidence.normalized_result);
 
-      if (!result.ok) throw result.error;
-      expect(result.value.targets).toHaveLength(targets.length);
-      expect(result.value.targets[0]?.target_id).toBe("target-0000");
-      expect(result.value.targets.at(-1)?.target_id).toBe("target-1100");
+      expect(result.targets).toHaveLength(targets.length);
+      expect(result.targets[0]?.target_id).toBe("target-0000");
+      expect(result.targets[0]?.url).toBe(
+        String.raw`https://allowed.example\path@tail/../keep?x=1#frag`,
+      );
+      expect(result.targets[0]?.origin).toBe("https://allowed.example");
+      expect(JSON.stringify(evidence)).not.toContain("user:pass");
+      expect(result.targets.at(-1)?.target_id).toBe("target-1100");
       expect(
-        result.value.targets.slice(0, 3).map(({ attached }) => attached),
+        result.targets.slice(0, 3).map(({ attached }) => attached),
       ).toEqual([null, false, true]);
       expect(
-        result.value.limitations.some((item) =>
-          item.includes("attachment state"),
-        ),
+        result.limitations.some((item) => item.includes("attachment state")),
       ).toBe(true);
     } finally {
       if (server.listening)
