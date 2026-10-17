@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { parseBinaryTarget } from "../../../dist/application/BinaryTargetResolver.js";
+import { ArtifactResourceScope } from "../../../dist/artifacts/ArtifactResourceScope.js";
 import { inspectAppleDispatchMetadata } from "../../../dist/native/AppleDispatchMetadata.js";
 import {
   artifactCliEvidence,
@@ -52,10 +53,20 @@ const fixupCoverage = (metadata) =>
 const inspect = async (path) => {
   const target = await parseBinaryTarget(path);
   if (!target.ok) throw target.error;
-  return {
-    target: target.value,
-    metadata: (await inspectAppleDispatchMetadata(target.value, 5000)).result,
-  };
+  const resources = new ArtifactResourceScope();
+  try {
+    return {
+      target: target.value,
+      metadata: (
+        await resources.run(() =>
+          inspectAppleDispatchMetadata(target.value, 5000, resources),
+        )
+      ).result,
+    };
+  } finally {
+    // Retry any descriptor whose close failed, surfacing unresolved cleanup.
+    await resources.close();
+  }
 };
 
 const checkObjc = (metadata, mode) => {

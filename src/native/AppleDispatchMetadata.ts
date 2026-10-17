@@ -10,9 +10,23 @@ import {
 } from "../domain/binaryTargetTypes.js";
 import {
   AnalysisCancelledError,
+  AnalysisCapabilityUnavailableError,
   AnalysisResourceConstraintError,
 } from "../domain/analysisErrorCore.js";
-import { openRegularFile } from "../filesystem/RegularFile.js";
+import {
+  ArtifactFileCleanupFailure,
+  artifactFileCancellationCause,
+  artifactFilePrimaryFailure,
+  bindArtifactFileCleanup,
+  withArtifactRegularFile,
+} from "../artifacts/ArtifactFileOperation.js";
+import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
+import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
+import { AnalysisError } from "../domain/analysisErrorBase.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import { ProviderAdapterError } from "../domain/providerAdapterError.js";
+import { ProviderCleanupError } from "../domain/providerCleanupError.js";
+import { NATIVE_MACOS_PROVIDER_IDENTITY as IDENTITY } from "./NativeMacOSProviderMetadata.js";
 import { readBoundedFileBytes } from "../process/BoundedFileBytes.js";
 import { EvidenceIntegrityError } from "../domain/evidenceErrors.js";
 import { pushDispatchCoverage } from "./AppleDispatchCoverage.js";
@@ -180,10 +194,14 @@ export const decodeAppleDispatchMetadata = (
   return objcSwiftMetadataSchema.parse(result);
 };
 
-/** Read digest-verified target bytes under a 64 MiB static metadata budget. */
+/**
+ * Read digest-verified target bytes under a 64 MiB static metadata budget.
+ * The caller's scope retains the target descriptor when its final close fails.
+ */
 export const inspectAppleDispatchMetadata = async (
   target: BinaryTarget,
   maxRecords: number,
+  resources: ArtifactResourceScope,
   signal?: AbortSignal,
 ) => {
   if (target.kind !== "executable" || !isMachOFormat(target.format))
@@ -196,38 +214,105 @@ export const inspectAppleDispatchMetadata = async (
       "Apple static metadata input exceeds its 64 MiB snapshot budget",
       { input_bytes: maximumBytes },
     );
-  const handle = await openRegularFile(target.path, {
-    symlinks: "reject",
-    signal,
-  });
-  try {
-    const before = await handle.stat();
-    if (before.size > maximumBytes) throw capacityError();
-    if (signal?.aborted)
-      throw new AnalysisCancelledError("inspect_native_dispatch_metadata");
-    const bytes = await readBoundedFileBytes(handle, maximumBytes, signal);
-    if (bytes === undefined) throw capacityError();
-    const digest = createHash("sha256").update(bytes).digest("hex");
-    if (digest !== target.sha256)
-      throw new EvidenceIntegrityError(
-        "Apple metadata target digest changed after session binding",
-      );
-    return nativeDispatchMetadataResultSchema.parse({
-      target_sha256: target.sha256,
-      provider: {
-        id: "native-macos",
-        name: "macOS native inspection utilities",
-        version: "apple-metadata-reader-1",
-      },
-      analysis_profile_digest: null,
-      result: decodeAppleDispatchMetadata(
-        bytes,
-        maxRecords,
-        { path: target.path, sha256: digest },
-        target.architecture,
-      ),
+  const cancelled = () =>
+    new AnalysisCancelledError("inspect_native_dispatch_metadata", {
+      cause: signal?.reason,
     });
-  } finally {
-    await handle.close();
+  const { bytes, digest } = await withArtifactRegularFile(
+    target.path,
+    resources,
+    signal,
+    async (handle) => {
+      const before = await handle.stat();
+      if (before.size > maximumBytes) throw capacityError();
+      if (signal?.aborted) throw cancelled();
+      const read = await readBoundedFileBytes(
+        handle,
+        maximumBytes,
+        signal,
+      ).catch((cause: unknown) => {
+        // The bounded reader rejects with the caller's exact abort reason.
+        if (signal?.aborted === true && cause === signal.reason)
+          throw cancelled();
+        throw cause;
+      });
+      if (read === undefined) throw capacityError();
+      const sha256 = createHash("sha256").update(read).digest("hex");
+      if (sha256 !== target.sha256)
+        throw new EvidenceIntegrityError(
+          "Apple metadata target digest changed after session binding",
+        );
+      return { bytes: read, digest: sha256 };
+    },
+    "reject",
+  );
+  return nativeDispatchMetadataResultSchema.parse({
+    target_sha256: target.sha256,
+    provider: {
+      id: "native-macos",
+      name: "macOS native inspection utilities",
+      version: "apple-metadata-reader-1",
+    },
+    analysis_profile_digest: null,
+    result: decodeAppleDispatchMetadata(
+      bytes,
+      maxRecords,
+      { path: target.path, sha256: digest },
+      target.architecture,
+    ),
+  });
+};
+
+const OPERATION = "inspect_native_dispatch_metadata";
+
+/** Translate the owned target read, keeping a failed close beside its physical outcome. */
+export const appleDispatchMetadataFailure = (
+  cause: unknown,
+  path: string,
+): AnalysisError => {
+  if (cause instanceof ArtifactReaderFailure && cause.cleanup !== undefined) {
+    const physical =
+      cause instanceof ArtifactFileCleanupFailure
+        ? cause.fileCleanupFailure
+        : undefined;
+    const previous =
+      physical?.outcome.kind === "failed"
+        ? appleDispatchMetadataFailure(artifactFilePrimaryFailure(cause), path)
+        : physical?.completionCancellation === undefined
+          ? undefined
+          : new AnalysisCancelledError(OPERATION, {
+              cause: physical.completionCancellation.reason,
+            });
+    const failure = new ProviderCleanupError(
+      IDENTITY.id,
+      cause.cleanup.resources,
+      {
+        reason: cause.cleanup.reason,
+        previous_error:
+          previous === undefined ? null : projectAnalysisError(previous),
+      },
+      { operation: OPERATION, cause, cleanupPrimary: previous },
+    );
+    bindArtifactFileCleanup(cause, failure);
+    return failure;
   }
+  if (cause instanceof AnalysisError) return cause;
+  if (cause instanceof ArtifactReaderFailure && cause.reason === "cancelled")
+    return new AnalysisCancelledError(OPERATION, {
+      cause: artifactFileCancellationCause(cause),
+    });
+  if (cause instanceof ArtifactReaderFailure && cause.reason === "unavailable")
+    return new AnalysisCapabilityUnavailableError(
+      IDENTITY.id,
+      OPERATION,
+      cause.message,
+      { cause },
+    );
+  return new ProviderAdapterError(IDENTITY.id, OPERATION, {
+    cause,
+    diagnostics: {
+      target_path: path,
+      reason: cause instanceof Error ? cause.message : String(cause),
+    },
+  });
 };
