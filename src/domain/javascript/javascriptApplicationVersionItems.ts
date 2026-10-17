@@ -148,8 +148,7 @@ const matchedItem = (
     dimensions.length === 1 &&
     dimensions[0] === "location" &&
     (pair.basis === "exact-content-digest" ||
-      pair.basis === "exact-module-source-digest" ||
-      pair.basis === "exact-node-identity");
+      pair.basis === "exact-module-source-digest");
   const observedChange =
     !locationOnlyRelocation &&
     dimensions.some((dimension) =>

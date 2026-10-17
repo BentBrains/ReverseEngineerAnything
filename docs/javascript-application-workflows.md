@@ -288,10 +288,13 @@ and the result includes its basis, candidates, changed dimensions, Evidence
 links, limitations, and a `changed_from` graph containing all compared nodes,
 their observations, and relationships.
 
-An exact match (content digest, module-source digest, or node identity) whose
-only differing dimension is `location` is `unchanged`: bundle relocation shifts
-byte offsets without changing content. The `location` dimension and a relocation
-limitation are retained, and no `changed_from` edge is emitted.
+An exact content or module-source digest match whose only differing
+dimension is `location` is `unchanged` when both graphs have complete
+coverage: bundle relocation shifts byte offsets without changing content.
+The `location` dimension and a relocation limitation are retained, and no
+`changed_from` edge is emitted. With partial or truncated input the item is
+`unknown`; node identity alone never proves byte equality, so exact
+node-identity matches keep their full dimensional comparison.
 
 One-sided absence is `added` or `removed` only when the opposite input graph has
 complete coverage. With partial, unavailable, or truncated input, the same
