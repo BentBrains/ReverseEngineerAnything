@@ -1230,8 +1230,11 @@ it.each([
   "tests/boundary/mcp/ghidraStartupCancellationMcp.test.ts",
   "tests/boundary/mcp/ghidraInventoryMcp.test.ts",
   "tests/boundary/providers/startupCloseWaiters.test.ts",
+  "tests/boundary/filesystem/ghidraExecutableHeader.test.ts",
+  "tests/boundary/filesystem/ghidraInstallationProperties.test.ts",
+  "tests/boundary/providers/ghidra/ghidraLaunchOutcome.test.ts",
 ])(
-  "selects the Windows package lane for Ghidra socket fixture %s",
+  "selects the Windows package lane for Ghidra host fixture %s",
   async (path) => {
     const { directory, base } = await fixture();
     const head = await change(directory, [path]);

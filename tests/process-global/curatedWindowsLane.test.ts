@@ -117,6 +117,9 @@ describe("curated Windows test lane", () => {
         "tests/boundary/mcp/ghidraStartupCancellationMcp.test.ts",
         "tests/boundary/mcp/ghidraInventoryMcp.test.ts",
         "tests/boundary/providers/startupCloseWaiters.test.ts",
+        "tests/boundary/filesystem/ghidraExecutableHeader.test.ts",
+        "tests/boundary/filesystem/ghidraInstallationProperties.test.ts",
+        "tests/boundary/providers/ghidra/ghidraLaunchOutcome.test.ts",
       ]),
     );
   });
